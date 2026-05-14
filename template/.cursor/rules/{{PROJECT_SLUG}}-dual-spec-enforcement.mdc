@@ -1,0 +1,14 @@
+---
+description: {{PROJECT_SLUG}} dual-spec enforcement for new tracks
+alwaysApply: true
+---
+
+# {{PROJECT_SLUG}} dual-spec enforcement
+
+- Exija uma spec de construcao e uma spec de diagnostico para toda trilha nova.
+- Nao implemente uma trilha nova quando qualquer uma das duas specs estiver ausente.
+- Se a mudanca pertencer a um contrato existente, amende a spec existente e registre as secoes governantes.
+- Se a mudanca criar novo bounded context, contrato principal ou diagnostico separado, abra uma trilha dual-spec.
+- Use `skills/05-{{PROJECT_SLUG}}-spec-architect/SKILL.md` para decidir entre amendar spec existente e criar nova trilha.
+- Pare quando objetivo, escopo, fora de escopo, comportamento observavel, testes ou criterio diagnostico estiverem materialmente ambiguos.
+- Nao trate pedido inicial, conversa, plano ou prompt como substituto de spec versionada.

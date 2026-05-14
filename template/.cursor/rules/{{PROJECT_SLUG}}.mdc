@@ -1,0 +1,16 @@
+---
+description: {{PROJECT_SLUG}} spec-driven baseline for AI-assisted contributions
+alwaysApply: true
+---
+
+# {{PROJECT_SLUG}} baseline
+
+- Leia `AGENTS.md`, a spec governante e `skills/00-skill-index/SKILL.md` antes de propor edicao.
+- Cite a spec e a secao governante antes de alterar comportamento, API publica ou docs operacionais.
+- Nao implemente feature fora de spec. Se a spec faltar ou estiver ambigua, pare e registre o gap.
+- Atualize testes no mesmo patch quando o comportamento mudar.
+- Mantenha `pkg/*` livre de dependencias em `internal/*`, exceto pela ponte publica permitida em `pkg/app`.
+- Nao declare capacidade operacional sem artefato real correspondente.
+- Para feature requests interativas, aplique `interactive_sdd_autopilot`, `skills/23-{{PROJECT_SLUG}}-sdd-autopilot/SKILL.md` e as rules modulares de autopilot.
+- Nao use `automation/ROADMAP.json` nem `automation/PHASE_STATE.json` para trilhas interativas.
+- Responda sempre com: `objetivo`, `specs lidas`, `skills aplicadas`, `arquivos alterados`, `comandos executados`, `testes executados` e `gaps restantes`.

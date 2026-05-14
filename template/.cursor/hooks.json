@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "hooks": {
+    "afterFileEdit": [
+      {
+        "command": ".cursor/hooks/gofmt-after-edit.sh",
+        "matcher": "\\.go$"
+      }
+    ]
+  }
+}

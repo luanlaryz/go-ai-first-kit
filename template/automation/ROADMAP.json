@@ -1,0 +1,18 @@
+{
+  "project": "{{PROJECT_SLUG}}",
+  "mode": "phase_autopilot",
+  "max_retries_per_phase": 2,
+  "phases": [
+    {
+      "id": 0,
+      "name": "bootstrap-foundation",
+      "spec_file": "specs/680-phase-0-bootstrap-foundation.md",
+      "diagnosis_spec_file": "specs/681-phase-0-bootstrap-foundation-diagnosis.md",
+      "report_file": "docs/reports/phase-0-bootstrap-foundation-report.md",
+      "advance_only_if": {
+        "classification": "PASS",
+        "decision": "READY FOR FIRST FEATURE TRAIL"
+      }
+    }
+  ]
+}

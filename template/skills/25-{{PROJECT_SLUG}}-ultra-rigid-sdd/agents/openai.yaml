@@ -1,0 +1,3 @@
+interface:
+  display_name: "{{PROJECT_TITLE}} Ultra-Rigid SDD"
+  short_description: "Generate {{PROJECT_SLUG}} SDD specs, diagnoses, and autopilot prompts with strict evidence-first gates."

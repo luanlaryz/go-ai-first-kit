@@ -1,0 +1,15 @@
+---
+description: {{PROJECT_SLUG}} interactive feature request intake
+alwaysApply: true
+---
+
+# {{PROJECT_SLUG}} interactive feature intake
+
+- Trate uma solicitacao inicial de feature, evolucao, bug, refatoracao ou docs como intake.
+- Normalize o pedido antes de implementar: tipo, objetivo, escopo conhecido, incertezas, specs candidatas e skills candidatas.
+- Pergunte antes de editar quando houver ambiguidade material em objetivo, escopo, contrato, diagnostico, teste ou criterio de aceite.
+- Registre a decisao entre amendar spec existente e criar nova trilha dual-spec.
+- Crie ou refine a spec de construcao antes de implementar comportamento novo.
+- Crie a spec de diagnostico antes de executar diagnostico de uma trilha nova.
+- Atualize `automation/INTERACTIVE_STATE.json` durante intake, implementacao, diagnostico, report review, bloqueio e conclusao.
+- Conclua a solicitacao somente quando todas as etapas tiverem evidencia ou report com gate aprovado.

@@ -1,0 +1,33 @@
+repos:
+  - repo: local
+    hooks:
+      - id: fmt-fix
+        name: gofmt auto-fix
+        entry: bash -c 'make fmt && git diff --exit-code --quiet -- "*.go"'
+        language: system
+        pass_filenames: false
+      - id: lint
+        name: make lint
+        entry: make lint
+        language: system
+        pass_filenames: false
+      - id: vet
+        name: make vet
+        entry: make vet
+        language: system
+        pass_filenames: false
+      - id: check-compliance
+        name: make check-compliance
+        entry: make check-compliance
+        language: system
+        pass_filenames: false
+      - id: check-file-size
+        name: make check-file-size
+        entry: make check-file-size
+        language: system
+        pass_filenames: false
+      - id: secrets-check
+        name: make secrets-check
+        entry: make secrets-check
+        language: system
+        pass_filenames: false

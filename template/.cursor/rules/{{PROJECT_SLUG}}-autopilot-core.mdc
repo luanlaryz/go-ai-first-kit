@@ -1,0 +1,14 @@
+---
+description: {{PROJECT_SLUG}} autopilot core modes and evidence-first execution
+alwaysApply: true
+---
+
+# {{PROJECT_SLUG}} autopilot core
+
+- Trate `phase_autopilot` e `interactive_sdd_autopilot` como modos diferentes.
+- Use `automation/ROADMAP.json` e `automation/PHASE_STATE.json` somente para o roadmap fixo.
+- Use `automation/INTERACTIVE_AUTOPILOT.md`, `automation/INTERACTIVE_RUNBOOK.md` e `automation/INTERACTIVE_STATE.json` para trilhas interativas.
+- Leia `AGENTS.md`, a spec governante e `skills/00-skill-index/SKILL.md` antes de editar.
+- Para trilhas interativas, leia tambem `skills/23-{{PROJECT_SLUG}}-sdd-autopilot/SKILL.md`.
+- Nunca avance por narrativa, intencao, plano futuro, TODO ou ausencia aparente de erro.
+- Declare sempre `objetivo`, `specs lidas`, `skills aplicadas`, `arquivos alterados`, `comandos executados`, `testes executados` e `gaps restantes`.

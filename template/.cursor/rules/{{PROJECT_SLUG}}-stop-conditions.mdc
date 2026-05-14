@@ -1,0 +1,14 @@
+---
+description: {{PROJECT_SLUG}} stop condition enforcement
+alwaysApply: true
+---
+
+# {{PROJECT_SLUG}} stop conditions
+
+- Pare imediatamente quando qualquer stop condition de `automation/STOP_CONDITIONS.md` ocorrer.
+- Para roadmap fixo, mantenha `current_phase` na fase afetada e marque `automation/PHASE_STATE.json` como bloqueado.
+- Para trilha interativa, mantenha `current_step` na etapa afetada e marque `automation/INTERACTIVE_STATE.json` como bloqueado.
+- Nunca contorne stop condition removendo criterio de aceite, mudando gate, reordenando roadmap ou mascarando gap com texto narrativo.
+- Pare quando testes obrigatorios falharem, report estiver ausente, report for `PARTIAL`, `FAIL` ou `BLOCKED`, ou houver decisao humana pendente.
+- Pare quando a correcao exigir capability fora da spec, {{UPSTREAM_OPS_NAME}}, hosted service, dashboard, deploy tooling ou breaking change sem aprovacao.
+- Ao parar, informe evidencia observada, stop condition acionada e acao humana recomendada.

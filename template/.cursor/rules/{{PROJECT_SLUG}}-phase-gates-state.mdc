@@ -1,0 +1,15 @@
+---
+description: {{PROJECT_SLUG}} phase gates, reports and state files
+alwaysApply: true
+---
+
+# {{PROJECT_SLUG}} phase gates and state
+
+- Trate report versionado como fonte de verdade para avanco.
+- Avance somente com `classification = PASS` e decisao final compativel com o gate atual.
+- Para `phase_autopilot`, atualize apenas `automation/PHASE_STATE.json` conforme `automation/RUNBOOK.md`.
+- Para `interactive_sdd_autopilot`, atualize apenas `automation/INTERACTIVE_STATE.json` conforme `automation/INTERACTIVE_RUNBOOK.md`.
+- Nao altere `automation/ROADMAP.json` para inserir trilhas interativas.
+- Nao altere `automation/PHASE_STATE.json` para representar feature request interativa.
+- Preserve retries, bloqueio, ultimo report e ultima decisao ao parar por stop condition.
+- Pare se report, classificacao, decisao ou estado estiverem ausentes, ambiguos ou inconsistentes.

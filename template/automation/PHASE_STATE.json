@@ -1,0 +1,10 @@
+{
+  "current_phase": 0,
+  "status": "pending",
+  "last_completed_phase": null,
+  "retry_count": 0,
+  "last_report": "",
+  "last_decision": "",
+  "blocked": false,
+  "block_reason": ""
+}

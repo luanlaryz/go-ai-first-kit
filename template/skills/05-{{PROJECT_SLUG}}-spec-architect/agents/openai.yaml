@@ -1,0 +1,4 @@
+interface:
+  display_name: "{{PROJECT_SLUG}} Spec Architect"
+  short_description: "Refina pedidos vagos ate virarem specs executaveis do {{PROJECT_SLUG}}, com prompts para Cursor/Codex e checklist de PR."
+  category: "developer"

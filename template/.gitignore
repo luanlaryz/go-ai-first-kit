@@ -1,0 +1,18 @@
+# OS/editor
+.DS_Store
+.idea/
+.vscode/
+
+# Local env
+.env
+.env.*
+!.env.example
+
+# Go
+bin/
+*.test
+coverage.out
+
+# Generated
+dist/
+.tmp/
