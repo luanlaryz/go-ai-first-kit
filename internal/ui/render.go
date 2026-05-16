@@ -8,6 +8,11 @@ import (
 	"github.com/inventa-co/go-ai-first-kit/internal/version"
 )
 
+const (
+	terminalJustificationWidth  = 64
+	terminalJustificationIndent = 52
+)
+
 func RenderTerminal(report diagnose.Report, noColor bool) string {
 	styles := NewStyles(noColor)
 	var b strings.Builder
@@ -15,17 +20,21 @@ func RenderTerminal(report diagnose.Report, noColor bool) string {
 	fmt.Fprintf(&b, "path: %s\n", report.Path)
 	fmt.Fprintf(&b, "scanned: %d files · elapsed: %s\n\n", report.FileCount, report.Elapsed.Round(1_000_000))
 	fmt.Fprintf(&b, "%-24s %7s %-10s %6s  %s\n", "Pilar", "Score", "Faixa", "Peso", "Justificativa")
-	fmt.Fprintf(&b, "%s\n", strings.Repeat("-", 86))
+	writeTerminalSeparator(&b)
 	for _, category := range report.Categories {
+		summaryLines := wrapWords(category.Summary, terminalJustificationWidth)
 		fmt.Fprintf(&b, "%-24s %7s %-10s %5.0f%%  %s\n",
 			category.Name,
 			styles.Score(category.Score),
 			styles.Band(diagnose.BandForScore(category.Score)),
 			category.Weight*100,
-			truncate(category.Summary, 44),
+			summaryLines[0],
 		)
+		for _, line := range summaryLines[1:] {
+			fmt.Fprintf(&b, "%s%s\n", strings.Repeat(" ", terminalJustificationIndent), line)
+		}
+		writeTerminalSeparator(&b)
 	}
-	fmt.Fprintf(&b, "%s\n", strings.Repeat("-", 86))
 	fmt.Fprintf(&b, "%-24s %7s %-10s %5s  %s\n\n",
 		"Score Global Ponderado",
 		styles.Score(report.GlobalScore),
@@ -38,7 +47,8 @@ func RenderTerminal(report diagnose.Report, noColor bool) string {
 		return b.String()
 	}
 	b.WriteString("Itens a melhorar\n")
-	b.WriteString(strings.Repeat("-", 16) + "\n")
+	b.WriteString(strings.Repeat("-", 16))
+	b.WriteString("\n")
 	for index, item := range report.Improvements {
 		fmt.Fprintf(&b, "%d. [%s][%s] %s\n", index+1, styles.Severity(item.Severity), item.Pillar, item.Recommendation)
 		if len(item.Evidence) > 0 {
@@ -101,6 +111,31 @@ func RenderMarkdown(report diagnose.Report) string {
 		}
 	}
 	return b.String()
+}
+
+func writeTerminalSeparator(b *strings.Builder) {
+	fmt.Fprintf(b, "%s\n", strings.Repeat("-", terminalJustificationIndent+terminalJustificationWidth))
+}
+
+func wrapWords(value string, max int) []string {
+	words := strings.Fields(value)
+	if len(words) == 0 {
+		return []string{""}
+	}
+	if max <= 0 {
+		return []string{strings.Join(words, " ")}
+	}
+	lines := make([]string, 0, len(words))
+	current := words[0]
+	for _, word := range words[1:] {
+		if len(current)+1+len(word) <= max {
+			current += " " + word
+			continue
+		}
+		lines = append(lines, current)
+		current = word
+	}
+	return append(lines, current)
 }
 
 func truncate(value string, max int) string {
