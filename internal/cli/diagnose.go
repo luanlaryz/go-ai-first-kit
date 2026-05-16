@@ -15,11 +15,13 @@ import (
 )
 
 type diagnoseOptions struct {
-	path       string
-	minScore   int
-	outDir     string
-	reportOnly bool
-	json       bool
+	path           string
+	minScore       int
+	outDir         string
+	reportOnly     bool
+	json           bool
+	planPrompt     bool
+	planPromptOnly bool
 }
 
 func newDiagnoseCmd(global *globalOptions) *cobra.Command {
@@ -28,7 +30,8 @@ func newDiagnoseCmd(global *globalOptions) *cobra.Command {
 		Use:   "diagnose --path <dir>",
 		Short: "Diagnostica maturidade AI-first de um projeto",
 		Example: "  gakit diagnose --path .\n" +
-			"  gakit diagnose --path . --min-score 80 --report-only --json --out ./reports",
+			"  gakit diagnose --path . --min-score 80 --report-only --json --out ./reports\n" +
+			"  gakit diagnose --path . --plan-prompt --plan-prompt-only --out ./reports",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if strings.TrimSpace(opts.path) == "" {
 				return fmt.Errorf("--path e obrigatorio")
@@ -56,6 +59,26 @@ func newDiagnoseCmd(global *globalOptions) *cobra.Command {
 					fmt.Fprintf(cmd.OutOrStdout(), "Relatorio salvo em %s\n", path)
 				}
 			}
+
+			if opts.planPrompt {
+				fmt.Fprintln(cmd.OutOrStdout())
+				fmt.Fprint(cmd.OutOrStdout(), ui.RenderCorrectionPlanPrompt(report))
+			}
+			shouldPersistPrompt := opts.planPromptOnly
+			if opts.planPrompt && !shouldPersistPrompt {
+				confirmed, err := ui.ConfirmPersistPlanPrompt(cmd.Context())
+				if err != nil {
+					return err
+				}
+				shouldPersistPrompt = confirmed
+			}
+			if shouldPersistPrompt {
+				path, err := persistPlanPrompt(report, opts.outDir)
+				if err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Prompt de plano salvo em %s\n", path)
+			}
 			if report.GlobalScore < opts.minScore {
 				return exitError{code: 1, message: fmt.Sprintf("score global %d abaixo do minimo %d", report.GlobalScore, opts.minScore)}
 			}
@@ -67,6 +90,8 @@ func newDiagnoseCmd(global *globalOptions) *cobra.Command {
 	cmd.Flags().StringVar(&opts.outDir, "out", "", "diretorio para salvar relatorios; default e o cwd")
 	cmd.Flags().BoolVar(&opts.reportOnly, "report-only", false, "salva o relatorio sem perguntar ao final")
 	cmd.Flags().BoolVar(&opts.json, "json", false, "salva tambem uma versao JSON do relatorio")
+	cmd.Flags().BoolVar(&opts.planPrompt, "plan-prompt", false, "imprime um prompt para criar plano de correcao dos achados")
+	cmd.Flags().BoolVar(&opts.planPromptOnly, "plan-prompt-only", false, "salva o prompt de plano em Markdown sem perguntar")
 	return cmd
 }
 
@@ -99,6 +124,25 @@ func persistReport(report diagnose.Report, outDir string, writeJSON bool) ([]str
 		paths = append(paths, jsonPath)
 	}
 	return paths, nil
+}
+
+func persistPlanPrompt(report diagnose.Report, outDir string) (string, error) {
+	if strings.TrimSpace(outDir) == "" {
+		var err error
+		outDir, err = os.Getwd()
+		if err != nil {
+			return "", err
+		}
+	}
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		return "", err
+	}
+	base := fmt.Sprintf("%s+%s-correction-plan-prompt", safeFilename(report.ProjectSlug), time.Now().Format("2006-01-02T15-04-05"))
+	mdPath := filepath.Join(outDir, base+".md")
+	if err := os.WriteFile(mdPath, []byte(ui.RenderCorrectionPlanPrompt(report)), 0o644); err != nil {
+		return "", err
+	}
+	return mdPath, nil
 }
 
 func safeFilename(value string) string {
