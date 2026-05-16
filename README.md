@@ -4,10 +4,24 @@
 
 ## O que ele entrega
 
+- CLI `gakit` para criar projetos e diagnosticar maturidade AI-first.
 - `prompt-bootstrap-go-ai-first.md` auto-contido para colar em Cursor, Claude Code, Codex CLI ou outro agente.
 - `template/` completo com infraestrutura parametrizada por `{{PROJECT_SLUG}}`, `{{MODULE_PATH}}` e demais placeholders.
-- `scripts/init.sh` para renderizar o template em um diretório de projeto novo.
-- `scripts/build-master-prompt.sh` para regenerar o prompt único a partir do template.
+- Scripts shell legados como fallback para renderizar template e regenerar prompt único.
+
+## Fluxo recomendado: gakit
+
+```bash
+go install ./cmd/gakit
+gakit create ./myapp --slug myapp --title "My App" --module github.com/acme/myapp --description "AI-first app" --author "Acme"
+gakit diagnose --path ./myapp --report-only --json
+```
+
+Comandos principais:
+
+- `gakit help` mostra os comandos e flags disponíveis.
+- `gakit create` renderiza o `template/` embarcado, substitui placeholders, renomeia `go.mod.tmpl` para `go.mod`, aplica permissões executáveis e inicializa git.
+- `gakit diagnose --path <dir>` avalia DX, AI-first, security, arquitetura hexagonal, OpenAPI, documentação e governança com score ponderado.
 
 ## Uso rápido: prompt único
 
@@ -16,11 +30,13 @@
 3. Informe os parâmetros solicitados pelo prompt.
 4. Deixe o agente criar o projeto, rodar validações e reportar evidência.
 
-## Uso via script
+## Fallback legado
 
 ```bash
 ./scripts/init.sh /caminho/para/novo-projeto
 ```
+
+Os scripts `scripts/init.sh`, `scripts/render-template.sh` e `scripts/build-master-prompt.sh` continuam funcionais para compatibilidade, mas o fluxo primário agora é a CLI `gakit`.
 
 ## Trade-off
 
