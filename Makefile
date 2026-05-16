@@ -7,14 +7,19 @@ DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -X github.com/inventa-co/go-ai-first-kit/internal/version.Version=$(VERSION) -X github.com/inventa-co/go-ai-first-kit/internal/version.Commit=$(COMMIT) -X github.com/inventa-co/go-ai-first-kit/internal/version.Date=$(DATE)
 GOFILES := $(shell find . -type f -name '*.go' -not -path './vendor/*' -not -path './template/*')
 PACKAGES := . ./cmd/... ./internal/...
+HOME_BIN ?= $(HOME)/bin
 
-.PHONY: build install test lint vet fmt fmt-check dist
+.PHONY: build install install-home test lint vet fmt fmt-check dist
 
 build:
 	$(GO) build -ldflags "$(LDFLAGS)" -o bin/gakit ./cmd/gakit
 
 install:
 	$(GO) install -ldflags "$(LDFLAGS)" ./cmd/gakit
+
+install-home: build
+	mkdir -p "$(HOME_BIN)"
+	cp bin/gakit "$(HOME_BIN)/gakit"
 
 test:
 	$(GO) test $(PACKAGES)
