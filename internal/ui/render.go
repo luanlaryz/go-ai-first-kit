@@ -113,6 +113,75 @@ func RenderMarkdown(report diagnose.Report) string {
 	return b.String()
 }
 
+func RenderCorrectionPlanPrompt(report diagnose.Report) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# Prompt unico - plano de correcao AI-first para %s\n\n", report.ProjectSlug)
+	b.WriteString("Use este prompt para pedir a um agente que crie um plano de correcao. ")
+	b.WriteString("Nao execute correcoes, nao edite arquivos e nao trate este plano como spec aprovada.\n\n")
+
+	b.WriteString("## Contexto do diagnostico\n\n")
+	fmt.Fprintf(&b, "- Projeto: `%s`\n", report.ProjectSlug)
+	fmt.Fprintf(&b, "- Path diagnosticado: `%s`\n", report.Path)
+	fmt.Fprintf(&b, "- Scanned at: `%s`\n", report.ScannedAt.Format("2006-01-02T15:04:05Z07:00"))
+	fmt.Fprintf(&b, "- Files scanned: `%d`\n", report.FileCount)
+	fmt.Fprintf(&b, "- Global weighted score: `%d` (`%s`)\n", report.GlobalScore, report.Band)
+	fmt.Fprintf(&b, "- gakit version: `%s`\n\n", version.String())
+
+	b.WriteString("## Objetivo\n\n")
+	b.WriteString("Crie um plano de correcao priorizado para os itens criticos e warnings relevantes do diagnostico abaixo. ")
+	b.WriteString("O plano deve transformar os achados em uma trilha SDD dual spec, separando claramente especificacao de implementacao, especificacao de diagnostico e execucao futura.\n\n")
+
+	b.WriteString("## Regras obrigatorias\n\n")
+	b.WriteString("- Produza somente plano; nao implemente, nao altere arquivos e nao rode comandos destrutivos.\n")
+	b.WriteString("- Nao mascare ausencia de artefato obrigatorio com narrativa, TODO ou promessa futura.\n")
+	b.WriteString("- Priorize achados `CRIT` antes de `WARN`, preservando dependencias tecnicas entre itens.\n")
+	b.WriteString("- Diferencie correcao estrutural, documentacao, governanca, seguranca e validacao automatizada.\n")
+	b.WriteString("- Se algum achado nao se aplicar, inclua a justificativa arquitetural e a evidencia que sustenta a excecao.\n")
+	b.WriteString("- Nao trate este prompt nem o plano gerado como substituto de specs versionadas.\n\n")
+
+	b.WriteString("## SDD dual spec esperado\n\n")
+	b.WriteString("Inclua no plano a criacao ou atualizacao de dois artefatos normativos antes de qualquer implementacao futura:\n\n")
+	b.WriteString("1. Spec de implementacao\n")
+	b.WriteString("   - objetivo, motivacao, escopo, fora de escopo, requisitos, arquivos candidatos, contratos afetados, testes e criterios de aceite.\n")
+	b.WriteString("2. Spec de diagnostico\n")
+	b.WriteString("   - sinais observaveis, sintomas de falha, checks, comandos, evidencias esperadas, classificacao `PASS/PARTIAL/FAIL/BLOCKED` e report final esperado.\n\n")
+
+	b.WriteString("## Achados do diagnostico\n\n")
+	if len(report.Improvements) == 0 {
+		b.WriteString("Nenhum item critico ou warning foi detectado. Crie um plano leve de confirmacao, manutencao dos gates existentes e evidencias minimas para preservar o score.\n\n")
+	} else {
+		for index, item := range report.Improvements {
+			fmt.Fprintf(&b, "%d. [%s][%s] %s\n", index+1, item.Severity, item.Pillar, item.Title)
+			fmt.Fprintf(&b, "   - Recomendacao: %s\n", item.Recommendation)
+			for _, snippet := range item.Evidence {
+				if snippet.Path == "" {
+					continue
+				}
+				fmt.Fprintf(&b, "   - Evidencia: `%s", snippet.Path)
+				if snippet.StartLine > 0 {
+					fmt.Fprintf(&b, ":%d-%d", snippet.StartLine, snippet.EndLine)
+				}
+				b.WriteString("`\n")
+				if strings.TrimSpace(snippet.Content) != "" {
+					fmt.Fprintf(&b, "     %s\n", indentOneLine(snippet.Content))
+				}
+			}
+			b.WriteString("\n")
+		}
+	}
+
+	b.WriteString("## Saida obrigatoria do agente\n\n")
+	b.WriteString("Responda com um plano de correcao em Markdown contendo:\n\n")
+	b.WriteString("1. Resumo executivo do risco atual.\n")
+	b.WriteString("2. Priorizacao dos achados e dependencias entre correcoes.\n")
+	b.WriteString("3. Proposta de spec de implementacao e spec de diagnostico, com nomes de arquivos sugeridos.\n")
+	b.WriteString("4. Fases de correcao com arquivos candidatos, comandos de validacao e testes esperados.\n")
+	b.WriteString("5. Criterios de aceite e criterios de diagnostico para concluir cada fase.\n")
+	b.WriteString("6. Riscos, excecoes formais necessarias e perguntas bloqueantes, se existirem.\n")
+	b.WriteString("7. Proxima acao recomendada sem executar a correcao.\n")
+	return b.String()
+}
+
 func writeTerminalSeparator(b *strings.Builder) {
 	fmt.Fprintf(b, "%s\n", strings.Repeat("-", terminalJustificationIndent+terminalJustificationWidth))
 }

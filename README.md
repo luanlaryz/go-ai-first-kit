@@ -15,6 +15,7 @@
 go install ./cmd/gakit
 gakit create ./myapp --slug myapp --title "My App" --module github.com/acme/myapp --description "AI-first app" --author "Acme"
 gakit diagnose --path ./myapp --report-only --json
+gakit diagnose --path ./myapp --plan-prompt --plan-prompt-only --out ./reports
 ```
 
 Comandos principais:
@@ -22,6 +23,7 @@ Comandos principais:
 - `gakit help` mostra os comandos e flags disponíveis.
 - `gakit create` renderiza o `template/` embarcado, substitui placeholders, renomeia `go.mod.tmpl` para `go.mod`, aplica permissões executáveis e inicializa git.
 - `gakit diagnose --path <dir>` avalia DX, AI-first, security, arquitetura hexagonal, OpenAPI, documentação e governança com score ponderado.
+- `gakit diagnose --path <dir> --plan-prompt` imprime um prompt opcional para criar plano de correção SDD dual spec a partir dos achados; use `--plan-prompt-only --out ./reports` para persistir o prompt em Markdown sem perguntar.
 
 ## Uso rápido: prompt único
 

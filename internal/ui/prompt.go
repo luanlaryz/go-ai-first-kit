@@ -19,3 +19,17 @@ func ConfirmPersist(ctx context.Context) (bool, error) {
 	}
 	return value, err
 }
+
+func ConfirmPersistPlanPrompt(ctx context.Context) (bool, error) {
+	value := false
+	err := huh.NewConfirm().
+		Title("Deseja persistir o prompt de plano em markdown?").
+		Affirmative("sim").
+		Negative("nao").
+		Value(&value).
+		Run()
+	if ctx.Err() != nil {
+		return false, ctx.Err()
+	}
+	return value, err
+}
