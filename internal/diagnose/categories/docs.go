@@ -14,7 +14,7 @@ func (docsChecker) Check(inv diagnose.Inventory) diagnose.CategoryResult {
 	total := len(required) + 1
 
 	qualityChecks := 0
-	qualityTotal := 5
+	qualityTotal := 6
 	if inv.Contains("README.md", "##") && (inv.Contains("README.md", "Instal") || inv.Contains("README.md", "Uso")) {
 		qualityChecks++
 	}
@@ -22,6 +22,9 @@ func (docsChecker) Check(inv diagnose.Inventory) diagnose.CategoryResult {
 		qualityChecks++
 	}
 	if inv.Contains("CHANGELOG.md", "## [Unreleased]") {
+		qualityChecks++
+	}
+	if inv.Contains("CHANGELOG.md", "Keep a Changelog") || inv.Contains("CHANGELOG.md", "Semantic Versioning") {
 		qualityChecks++
 	}
 	if len(inv.FilesWithPrefix("examples")) > 0 {

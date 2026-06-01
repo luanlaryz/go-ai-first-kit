@@ -19,6 +19,8 @@
 - `specs/680-phase-25-interactive-sdd-autopilot-foundation.md` e `specs/681-phase-25-interactive-sdd-autopilot-foundation-diagnosis.md` governam o modo `interactive_sdd_autopilot`.
 - `automation/AUTOPILOT.md`, `automation/RUNBOOK.md`, `automation/ROADMAP.json` e `automation/PHASE_STATE.json` governam o modo `phase_autopilot`.
 - `automation/INTERACTIVE_AUTOPILOT.md`, `automation/INTERACTIVE_RUNBOOK.md` e `automation/INTERACTIVE_STATE.json` governam trilhas interativas de feature request.
+- `docs/backlog/Backlog.md` e o backlog canonico para itens governados; fontes historicas em `docs/backlog/**` nao viram itens implementaveis sem triagem pela skill `skills/26-backlog-item-intake/SKILL.md`.
+- `docs/decisions/` (ADRs) registra decisoes de arquitetura e governanca; `docs/release-versioning-policy.md`, `docs/release-notes-policy.md` e `docs/release-checklist.md` governam versionamento, changelog e release notes alinhados a `skills/22-release-versioning-governance/SKILL.md`.
 - Se houver conflito entre implementacao existente e spec aprovada, a spec prevalece.
 
 ## 3. Required execution workflow
@@ -35,6 +37,8 @@
 - Nao considerar uma trilha nova suficientemente spec driven se existir apenas spec de construcao sem spec de diagnostico.
 - Ao propor uma nova trilha, o agente deve verificar se ambas as specs existem. Se faltar qualquer uma delas, deve refinar o pedido ate fechar as duas antes de seguir para implementacao.
 - Para solicitacoes interativas de feature, evolucao, bug, refatoracao ou docs, usar `interactive_sdd_autopilot`: intake, requisitos, decisao de spec, dual-spec, implementacao, diagnostico, report e gate.
+- Para registrar pedidos, gaps, bugs, diagnosticos, recomendacoes ou ideias como backlog, usar `skills/26-backlog-item-intake/SKILL.md`, deduplicar em `docs/backlog/Backlog.md`, classificar escopo e specs, e nao promover fontes historicas em lote para itens `BLG-*`.
+- Para decisoes de release/versionamento e changelog, usar `skills/22-release-versioning-governance/SKILL.md` com `docs/release-versioning-policy.md`, `docs/release-notes-policy.md` e `docs/release-checklist.md`; registrar decisoes de arquitetura/governanca nao-obvias como ADR em `docs/decisions/`.
 - Nao usar `automation/ROADMAP.json` nem `automation/PHASE_STATE.json` para representar trilhas interativas; esses arquivos pertencem ao `phase_autopilot`.
 - Em trilhas interativas, usar `skills/23-{{PROJECT_SLUG}}-sdd-autopilot/SKILL.md` alem da skill de dominio aplicavel.
 - Para diagnosticos baseados em `@kodus/agent-readiness`, usar `skills/24-agent-readiness-governance/SKILL.md` e filtrar achados para o escopo de lib/framework Go.
@@ -168,3 +172,4 @@
 - Autopilot SDD interativo para feature requests: [`skills/23-{{PROJECT_SLUG}}-sdd-autopilot/SKILL.md`](skills/23-{{PROJECT_SLUG}}-sdd-autopilot/SKILL.md).
 - Governança de diagnósticos `agent-readiness`: [`skills/24-agent-readiness-governance/SKILL.md`](skills/24-agent-readiness-governance/SKILL.md).
 - SDD ultra-rígido / prompts / fases / gates evidence-first: [`skills/25-{{PROJECT_SLUG}}-ultra-rigid-sdd/SKILL.md`](skills/25-{{PROJECT_SLUG}}-ultra-rigid-sdd/SKILL.md).
+- Backlog governado (intake, triagem, classificação, prompts autopilot): [`skills/26-backlog-item-intake/SKILL.md`](skills/26-backlog-item-intake/SKILL.md).

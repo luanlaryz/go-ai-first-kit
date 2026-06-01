@@ -42,7 +42,7 @@ func (governanceChecker) Check(inv diagnose.Inventory) diagnose.CategoryResult {
 	}
 
 	qualityChecks := 0
-	qualityTotal := 5
+	qualityTotal := 7
 	if inv.Contains(".github/PULL_REQUEST_TEMPLATE.md", "## Objetivo", "## Specs lidas", "## Checklist") {
 		qualityChecks++
 	}
@@ -58,6 +58,12 @@ func (governanceChecker) Check(inv diagnose.Inventory) diagnose.CategoryResult {
 	if inv.Contains("docs/ai/compliance-exceptions.md", "## Excecoes ativas") || inv.Contains("docs/ai/compliance-exceptions.md", "## Exceções ativas") {
 		qualityChecks++
 	}
+	if inv.FileExists("docs/decisions/README.md") {
+		qualityChecks++
+	}
+	if inv.FileExists("docs/release-versioning-policy.md") {
+		qualityChecks++
+	}
 
 	findings := make([]diagnose.Finding, 0)
 	if missing := missingRequiredFiles(inv); len(missing) > 0 {
@@ -65,6 +71,12 @@ func (governanceChecker) Check(inv diagnose.Inventory) diagnose.CategoryResult {
 	}
 	if !hasDualSpecs(inv) {
 		findings = append(findings, finding(pillar, diagnose.SeverityWarn, "Dual-spec ausente ou incompleta", "Garantir pares de spec de construcao e diagnostico em specs/."))
+	}
+	if !inv.DirExists("docs/decisions") {
+		findings = append(findings, finding(pillar, diagnose.SeverityWarn, "Sistema de ADR ausente", "Adicionar docs/decisions/ com README e ADR seed para registrar decisoes de arquitetura e governanca."))
+	}
+	if !inv.FileExists("docs/release-versioning-policy.md") {
+		findings = append(findings, finding(pillar, diagnose.SeverityWarn, "Politica de release ausente", "Adicionar docs/release-versioning-policy.md alinhada a skill 22-release-versioning-governance."))
 	}
 	if !inv.Contains(".github/PULL_REQUEST_TEMPLATE.md", "## Gaps restantes") {
 		findings = append(findings, finding(pillar, diagnose.SeverityWarn, "PR template incompleto", "Adicionar todas as secoes obrigatorias ao PULL_REQUEST_TEMPLATE.md.", inv.SnippetForPath(".github/PULL_REQUEST_TEMPLATE.md", "PR template ausente ou incompleto.")))
@@ -75,7 +87,7 @@ func (governanceChecker) Check(inv diagnose.Inventory) diagnose.CategoryResult {
 		Weight:        0.15,
 		CoverageScore: diagnose.CoverageScore(present, total),
 		QualityScore:  diagnose.CoverageScore(qualityChecks, qualityTotal),
-		Summary:       "Compliance, dual-spec, PR template, CI e dependabot",
+		Summary:       "Compliance, dual-spec, PR template, CI, dependabot, ADR e release",
 		Findings:      findings,
 	}
 }

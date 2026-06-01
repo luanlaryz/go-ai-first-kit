@@ -1,0 +1,4 @@
+interface:
+  display_name: "{{PROJECT_TITLE}} Backlog Item Intake"
+  short_description: "Transforma pedidos, gaps e diagnósticos em itens governados de backlog com classificação SDD e prompts autopilot."
+  category: "developer"

@@ -1,12 +1,12 @@
 # go-ai-first-kit
 
-`go-ai-first-kit` é um kit para criar projetos Go com maturidade AI-first desde o primeiro commit. Ele foi extraído da infraestrutura de governança do `govolt` e empacota skills, Cursor rules, `AGENTS.md`, autopilot dual, SDD dual-spec, docs operacionais, CI gates, prompts e scripts de compliance.
+`go-ai-first-kit` é um kit para criar projetos Go com maturidade AI-first desde o primeiro commit. Ele foi extraído da infraestrutura de governança do `govolt` e empacota skills, Cursor rules, `AGENTS.md`, autopilot dual, SDD dual-spec, backlog governado, governança de release/changelog/ADR, docs operacionais, CI gates, prompts e scripts de compliance.
 
 ## O que ele entrega
 
 - CLI `gakit` para criar projetos e diagnosticar maturidade AI-first.
 - `prompt-bootstrap-go-ai-first.md` auto-contido para colar em Cursor, Claude Code, Codex CLI ou outro agente.
-- `template/` completo com infraestrutura parametrizada por `{{PROJECT_SLUG}}`, `{{MODULE_PATH}}` e demais placeholders.
+- `template/` completo com infraestrutura parametrizada por `{{PROJECT_SLUG}}`, `{{MODULE_PATH}}` e demais placeholders, incluindo backlog governado (`docs/backlog/` + skill `26-backlog-item-intake`), ADRs (`docs/decisions/`) e políticas de release/changelog (`docs/release-*.md`).
 - Scripts shell legados como fallback para renderizar template e regenerar prompt único.
 
 ## Fluxo recomendado: gakit
