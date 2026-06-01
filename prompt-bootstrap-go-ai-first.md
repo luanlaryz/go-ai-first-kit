@@ -167,12 +167,26 @@ charset = utf-8
 end_of_line = lf
 insert_final_newline = true
 trim_trailing_whitespace = true
-indent_style = space
-indent_size = 2
 
 [*.go]
 indent_style = tab
-indent_size = 4
+indent_size = tab
+
+[Makefile]
+indent_style = tab
+indent_size = tab
+
+[*.{md,markdown}]
+indent_style = space
+indent_size = 2
+
+[*.{yml,yaml,json}]
+indent_style = space
+indent_size = 2
+
+[*.sh]
+indent_style = space
+indent_size = 2
 </file>
 
 <file path=".file-size-exceptions">
@@ -409,6 +423,8 @@ repos:
 - `specs/680-phase-25-interactive-sdd-autopilot-foundation.md` e `specs/681-phase-25-interactive-sdd-autopilot-foundation-diagnosis.md` governam o modo `interactive_sdd_autopilot`.
 - `automation/AUTOPILOT.md`, `automation/RUNBOOK.md`, `automation/ROADMAP.json` e `automation/PHASE_STATE.json` governam o modo `phase_autopilot`.
 - `automation/INTERACTIVE_AUTOPILOT.md`, `automation/INTERACTIVE_RUNBOOK.md` e `automation/INTERACTIVE_STATE.json` governam trilhas interativas de feature request.
+- `docs/backlog/Backlog.md` e o backlog canonico para itens governados; fontes historicas em `docs/backlog/**` nao viram itens implementaveis sem triagem pela skill `skills/26-backlog-item-intake/SKILL.md`.
+- `docs/decisions/` (ADRs) registra decisoes de arquitetura e governanca; `docs/release-versioning-policy.md`, `docs/release-notes-policy.md` e `docs/release-checklist.md` governam versionamento, changelog e release notes alinhados a `skills/22-release-versioning-governance/SKILL.md`.
 - Se houver conflito entre implementacao existente e spec aprovada, a spec prevalece.
 
 ## 3. Required execution workflow
@@ -425,6 +441,8 @@ repos:
 - Nao considerar uma trilha nova suficientemente spec driven se existir apenas spec de construcao sem spec de diagnostico.
 - Ao propor uma nova trilha, o agente deve verificar se ambas as specs existem. Se faltar qualquer uma delas, deve refinar o pedido ate fechar as duas antes de seguir para implementacao.
 - Para solicitacoes interativas de feature, evolucao, bug, refatoracao ou docs, usar `interactive_sdd_autopilot`: intake, requisitos, decisao de spec, dual-spec, implementacao, diagnostico, report e gate.
+- Para registrar pedidos, gaps, bugs, diagnosticos, recomendacoes ou ideias como backlog, usar `skills/26-backlog-item-intake/SKILL.md`, deduplicar em `docs/backlog/Backlog.md`, classificar escopo e specs, e nao promover fontes historicas em lote para itens `BLG-*`.
+- Para decisoes de release/versionamento e changelog, usar `skills/22-release-versioning-governance/SKILL.md` com `docs/release-versioning-policy.md`, `docs/release-notes-policy.md` e `docs/release-checklist.md`; registrar decisoes de arquitetura/governanca nao-obvias como ADR em `docs/decisions/`.
 - Nao usar `automation/ROADMAP.json` nem `automation/PHASE_STATE.json` para representar trilhas interativas; esses arquivos pertencem ao `phase_autopilot`.
 - Em trilhas interativas, usar `skills/23-{{PROJECT_SLUG}}-sdd-autopilot/SKILL.md` alem da skill de dominio aplicavel.
 - Para diagnosticos baseados em `@kodus/agent-readiness`, usar `skills/24-agent-readiness-governance/SKILL.md` e filtrar achados para o escopo de lib/framework Go.
@@ -558,15 +576,32 @@ repos:
 - Autopilot SDD interativo para feature requests: [`skills/23-{{PROJECT_SLUG}}-sdd-autopilot/SKILL.md`](skills/23-{{PROJECT_SLUG}}-sdd-autopilot/SKILL.md).
 - Governança de diagnósticos `agent-readiness`: [`skills/24-agent-readiness-governance/SKILL.md`](skills/24-agent-readiness-governance/SKILL.md).
 - SDD ultra-rígido / prompts / fases / gates evidence-first: [`skills/25-{{PROJECT_SLUG}}-ultra-rigid-sdd/SKILL.md`](skills/25-{{PROJECT_SLUG}}-ultra-rigid-sdd/SKILL.md).
+- Backlog governado (intake, triagem, classificação, prompts autopilot): [`skills/26-backlog-item-intake/SKILL.md`](skills/26-backlog-item-intake/SKILL.md).
 </file>
 
 <file path="CHANGELOG.md">
 # Changelog
 
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+A governanca de versionamento, changelog e release notes esta em
+`docs/release-versioning-policy.md`, `docs/release-notes-policy.md` e
+`docs/release-checklist.md`, alinhada a skill `22-release-versioning-governance`.
+
 ## [Unreleased]
 
 ### Added
+
 - Bootstrap AI-first governance baseline.
+
+<!--
+Ao publicar releases, mantenha os links de comparacao abaixo (assumem repositorio GitHub via {{MODULE_PATH}}; ajuste para outros hosts):
+[Unreleased]: https://{{MODULE_PATH}}/compare/v0.1.0...HEAD
+[0.1.0]: https://{{MODULE_PATH}}/releases/tag/v0.1.0
+-->
 </file>
 
 <file path="CONTRIBUTING.md">
@@ -2986,6 +3021,180 @@ Formato de saida:
 - Se o escopo tocar CI, docs operacionais, prompts ou briefs, liste os artefatos reais que devem ser sincronizados no mesmo patch.
 </file>
 
+<file path="docs/backlog/Backlog.md">
+# {{PROJECT_TITLE}} Backlog
+
+## Objetivo
+
+Este arquivo é o backlog canônico de triagem para itens governados por SDD no `{{PROJECT_SLUG}}`. Ele registra pedidos, gaps, bugs, diagnósticos, recomendações e ideias depois de passarem pela triagem da skill [`skills/26-backlog-item-intake/SKILL.md`](../../skills/26-backlog-item-intake/SKILL.md).
+
+Este backlog não substitui specs, reports, testes ou decisão humana. Todo item implementável exige spec de construção e spec de diagnóstico antes de qualquer implementação.
+
+## Escopo e fontes
+
+Fontes em ordem de precedência:
+
+1. [AGENTS.md](../../AGENTS.md)
+2. [specs/000-project-mission.md](../../specs/000-project-mission.md), [specs/001-non-goals.md](../../specs/001-non-goals.md), [specs/010-feature-matrix.md](../../specs/010-feature-matrix.md), [specs/020-repository-architecture.md](../../specs/020-repository-architecture.md)
+3. Reports em `docs/reports/**` e fontes auxiliares em `docs/backlog/**`
+
+Regras de escopo:
+
+- `docs/backlog/Backlog.md` não substitui specs, reports, testes ou decisão humana.
+- Não migrar fontes históricas em lote para itens `BLG-*`.
+- Não registrar capability de {{UPSTREAM_OPS_NAME}}, hosted service, Admin UI, control plane, RBAC, billing, quotas ou responsabilidade de aplicação consumidora como item implementável.
+- Todo item implementável deve exigir spec de construção e spec de diagnóstico antes de qualquer implementação.
+
+## Lifecycle do backlog
+
+Estados canônicos:
+
+- `candidate`: entrada registrada, ainda sem triagem completa.
+- `ready_for_spec`: recorte suficiente para criar ou amendar specs.
+- `ready_for_implementation`: specs governantes existem e diagnóstico está definido.
+- `blocked`: falta decisão, evidência, spec ou ambiente.
+- `in_progress`: trilha SDD em execução.
+- `done`: item concluído com report `PASS`.
+- `rejected`: fora de escopo, duplicado ou incompatível com non-goals.
+
+## Critérios de classificação
+
+A classificação de cada item (status, tipo, prioridade, severidade, valor, complexidade, risco, decisão de escopo, impacto em API pública e risco de breaking change) segue [`skills/26-backlog-item-intake/references/backlog-classification-rules.md`](../../skills/26-backlog-item-intake/references/backlog-classification-rules.md).
+
+## Índice de priorização
+
+Liste aqui apenas itens `BLG-*` reais, ordenados por prioridade (`P0` a `P3`), depois bloqueados, rejeitados e concluídos. Dentro da mesma prioridade, prefira maior risco e maior valor.
+
+Nenhum item `BLG-*` registrado ainda.
+
+## Itens
+
+Insira cada item usando [`skills/26-backlog-item-intake/references/backlog-item-template.md`](../../skills/26-backlog-item-intake/references/backlog-item-template.md). O primeiro item recebe o ID `BLG-0001`.
+
+Nenhum item `BLG-*` registrado ainda.
+
+## Backlogs auxiliares e fontes históricas
+
+Cite aqui backlogs herdados, planos importados ou relatórios de pesquisa que ainda não foram triados. Eles não viram itens implementáveis sem triagem individual.
+
+Nenhuma fonte auxiliar registrada ainda.
+
+## Itens candidatos a triagem
+
+Liste candidatos ainda não promovidos a `BLG-*`. Cada candidato deve registrar fonte, recorte, decisão atual, motivo para não criar `BLG-*` ainda e próxima ação de triagem.
+
+Nenhum candidato registrado ainda.
+</file>
+
+<file path="docs/decisions/0001-record-architecture-decisions.md">
+# 0001 - Record Architecture Decisions
+
+- **Status**: `Accepted`
+- **Data**: bootstrap
+
+## Contexto
+
+O `{{PROJECT_SLUG}}` segue Spec Driven Development rigoroso e governanca AI-first. Decisoes de arquitetura, governanca de release, ownership e tecnologia precisam de um registro estavel, rastreavel e imutavel que sobreviva a conversas, prompts e mudancas de equipe.
+
+Specs descrevem o contrato de um modulo, mas nem toda decisao transversal (escolha de tecnologia, fronteira de escopo, politica de release) cabe em uma spec de modulo. Sem um registro dedicado, o "porque" de decisoes importantes se perde.
+
+## Decisao
+
+Adotar Architecture Decision Records (ADRs) em `docs/decisions/`, seguindo o formato e as regras de numeracao descritos em [README.md](README.md).
+
+ADRs sao imutaveis apos `Accepted`; revisitar uma decisao exige um novo ADR que supersede o anterior.
+
+## Opcoes consideradas
+
+- **ADRs versionados no repo (escolhida)**: historico imutavel, rastreavel por commit, proximo de codigo e specs.
+  - Pros: simples, duravel, revisavel em PR, sem dependencia externa.
+  - Cons: exige disciplina de numeracao e de imutabilidade.
+- **Registrar decisoes apenas em specs**: evita um diretorio novo.
+  - Pros: menos artefatos.
+  - Cons: mistura contrato de modulo com decisao transversal; decisoes de governanca ficam sem lar.
+- **Wiki ou ferramenta externa**: centraliza fora do repo.
+  - Pros: edicao facil.
+  - Cons: drift em relacao ao codigo, sem revisao por PR, sem imutabilidade garantida.
+
+## Consequencias
+
+Positivas:
+
+- Decisoes transversais ficam rastreaveis e auditaveis.
+- O "porque" de cada decisao sobrevive a mudancas de contexto.
+- Release governance e fronteiras de escopo passam a ter registro normativo.
+
+Negativas:
+
+- Exige disciplina para criar e superseder ADRs corretamente.
+- Adiciona um passo de processo para decisoes nao-obvias.
+
+## Criterios para reabrir
+
+- Mudanca material no fluxo de governanca ou no formato de decisao do projeto.
+- Necessidade de integrar ADRs com outra ferramenta de rastreabilidade.
+
+## Referencias
+
+- [docs/decisions/README.md](README.md)
+- `AGENTS.md`
+- `skills/22-release-versioning-governance/SKILL.md`
+</file>
+
+<file path="docs/decisions/README.md">
+# Architecture Decision Records (ADRs)
+
+Este diretorio contem os ADRs (Architecture Decision Records) governantes do `{{PROJECT_SLUG}}`.
+
+Cada ADR documenta uma decisao tecnica ou de governanca com contexto, opcoes consideradas, decisao adotada e consequencias.
+
+## Formato
+
+ADRs seguem template simplificado (MADR-like):
+
+- Titulo
+- Status (`Proposed` / `Accepted` / `Deprecated` / `Superseded by ...`)
+- Contexto
+- Decisao
+- Opcoes consideradas (com pros e cons)
+- Consequencias (positivas e negativas)
+- Criterios para reabrir
+- Referencias
+
+## Numeracao
+
+ADRs sao numerados sequencialmente em formato `NNNN-titulo-kebab-case.md`. A faixa atual:
+
+- `0001`: registra a propria pratica de ADRs (bootstrap).
+- `0002-0009`: reservadas para ADRs de bootstrap futuros.
+- `0010+`: ADRs documentando decisoes registradas via `interactive_sdd_autopilot` ou `phase_autopilot`.
+
+## Indice
+
+- [0001 - Record Architecture Decisions](0001-record-architecture-decisions.md) - `Accepted`
+
+## Quando criar um ADR
+
+Crie um ADR quando:
+
+- Houver decisao de arquitetura nao-obvia que afete contrato publico ou comportamento operacional.
+- Houver decisao de governanca (release, ownership, deprecation, security policy).
+- Houver decisao de tecnologia que limite caminhos futuros.
+- Houver decisao explicitamente requisitada por spec, plano ou stop condition.
+
+Decisoes pequenas ou que sao consequencia direta de uma spec aprovada nao exigem ADR; o registro vai na propria spec ou no report da trilha.
+
+## Quando atualizar um ADR
+
+ADRs sao **imutaveis** apos `Accepted`. Para revisitar uma decisao:
+
+1. Criar novo ADR com proximo numero sequencial.
+2. Marcar status do novo ADR com referencia ao antigo: `Status: Accepted (supersedes 0001)`.
+3. Atualizar status do antigo para `Superseded by 0NNN`.
+
+Excecao: ADRs em `Proposed` podem ser editados ate aprovacao. Apos `Accepted`, sao imutaveis.
+</file>
+
 <file path="docs/feature-request-lifecycle.md">
 # Feature Request Lifecycle
 
@@ -3587,7 +3796,375 @@ Quando uma trilha interativa incluir readiness:
 5. referencie o report de readiness como evidencia de apoio no report diagnostico da trilha.
 </file>
 
+<file path="docs/plans/.gitkeep">
+
+</file>
+
+<file path="docs/release-checklist.md">
+# Release Checklist
+
+Checklist operacional curto para recomendacoes de release do `{{PROJECT_SLUG}}`.
+
+Traceabilidade:
+
+- `docs/release-versioning-policy.md`
+- `skills/22-release-versioning-governance/SKILL.md`
+- `skills/22-release-versioning-governance/resources/release_checklist.md`
+
+## 1. Cabecalho obrigatorio
+
+Preencher antes de decidir:
+
+- Candidate version:
+- Classification: `no release | patch | minor | major`
+- Distribution path: `NO_RELEASE | PRERELEASE_TAG | STABLE_TAG | HOTFIX_TAG | HOLD_RELEASE`
+- Prerelease stage, if applicable: `alpha.N | beta.N | rc.N | N/A`
+- Public surface touched:
+- Current line:
+- Evidence sources:
+
+## 2. Gates obrigatorios
+
+Marcar cada item como `PASS`, `FAIL` ou `UNVERIFIED`.
+
+| Gate | Status | Evidencia |
+| --- | --- | --- |
+| Sumario da mudanca explicito | | |
+| Modulos e arquivos tocados listados | | |
+| Impacto na superficie publica avaliado | | |
+| Avaliacao de breaking change concluida | | |
+| Classificacao SemVer escolhida | | |
+| Caminho de distribuicao escolhido | | |
+| Stage `alpha`/`beta`/`rc` justificado quando `PRERELEASE_TAG` | | |
+| `go test ./...` | | |
+| `go test -race ./...` | | |
+| Smoke/conformance relevantes | | |
+| Docs/OpenAPI alinhados quando aplicavel | | |
+| Feature matrix/reports sem contradicao material | | |
+| Changelog rascunhado | | |
+| Release notes rascunhadas | | |
+| Riscos residuais listados | | |
+
+## 3. Regras de decisao
+
+1. `STABLE_TAG` exige ausencia de blocker conhecido e gates criticos sem `FAIL`.
+2. `PRERELEASE_TAG` pode conviver com `UNVERIFIED`, mas isso deve aparecer nas release notes.
+3. `HOTFIX_TAG` exige justificativa de urgencia e escopo de `patch`.
+4. Docs/spec/report only tendem a `NO_RELEASE`.
+5. Se a evidencia for insuficiente para prometer estabilidade, usar `HOLD_RELEASE` ou `PRERELEASE_TAG`.
+6. `alpha`, `beta` e `rc` sao maturidade do candidato; eles nao substituem classificacao SemVer nem escondem breaking change.
+
+## 4. Saida minima
+
+Toda avaliacao deve registrar:
+
+- decisao final
+- versao recomendada
+- superficie publica tocada
+- justificativa do impacto
+- checklist preenchido
+- riscos ou blockers remanescentes
+</file>
+
+<file path="docs/release-notes-policy.md">
+# Changelog and Release Notes Policy
+
+Politica curta para manter `CHANGELOG.md` e release notes coerentes com a classificacao SemVer do `{{PROJECT_SLUG}}`.
+
+Traceabilidade:
+
+- `docs/release-versioning-policy.md`
+- `skills/15-devx-ci-precommit-changelog/SKILL.md`
+- `skills/21-documentation-open-source/SKILL.md`
+- `skills/22-release-versioning-governance/SKILL.md`
+
+## 1. `CHANGELOG.md`
+
+O repositorio usa Keep a Changelog com secao `[Unreleased]`.
+
+Regras:
+
+1. toda mudanca release-worthy deve deixar rastro em `CHANGELOG.md`
+2. a entrada deve refletir o impacto real ao consumidor
+3. docs-only ou spec-only podem permanecer em `[Unreleased]` sem forcar release proprio
+4. nao usar changelog para esconder breaking change sob texto neutro
+5. quando uma mudanca e `major`, isso deve aparecer de forma explicita na linguagem da entrada
+
+Secoes preferenciais:
+
+- `Added`
+- `Changed`
+- `Deprecated`
+- `Removed`
+- `Fixed`
+- `Security`
+
+## 2. Release notes
+
+Todo release diferente de `NO_RELEASE` deve ter release notes curtas com:
+
+1. versao recomendada
+2. classificacao SemVer
+3. stage de prerelease (`alpha.N`, `beta.N`, `rc.N`) quando a distribuicao for `PRERELEASE_TAG`
+4. resumo executivo
+5. mudancas publicas principais
+6. avaliacao de compatibilidade
+7. status dos gates relevantes
+8. riscos, limites conhecidos ou itens `UNVERIFIED`
+9. instrucao de upgrade quando aplicavel
+
+Quando as release notes forem de prerelease, elas devem dizer se o candidato e `alpha`, `beta` ou `rc`, por que esse stage foi escolhido e quais riscos impedem ou ainda nao justificam `STABLE_TAG`.
+
+## 3. Relacao entre changelog e release notes
+
+Os dois artefatos devem contar a mesma historia sobre:
+
+- o que mudou
+- se houve ou nao breaking change
+- se o release e estavel, prerelease ou hotfix
+- qual stage de prerelease foi escolhido, quando aplicavel
+- quais riscos ainda existem
+
+Se changelog, release notes, feature matrix e reports divergirem, o artefato menos aderente ao comportamento real deve ser corrigido.
+
+## 4. Modelos minimos
+
+### Changelog
+
+```md
+## [Unreleased]
+
+### Changed
+- Release governance docs adicionadas para formalizar classificacao SemVer, checklist de release e politica de changelog/release notes. (spec governante)
+```
+
+### Release notes
+
+```md
+# Release Notes - vX.Y.Z
+
+- Classification: `patch | minor | major`
+- Distribution: `STABLE_TAG | PRERELEASE_TAG | HOTFIX_TAG`
+- Prerelease stage: `alpha.N | beta.N | rc.N | N/A`
+- Public surface touched: `pkg/*`, HTTP, OpenAPI, starter, docs surface
+
+## Summary
+- _resumo curto_
+
+## Compatibility
+- _impacto compativel ou breaking_
+
+## Gates
+- `go test ./...`: `PASS | FAIL | UNVERIFIED`
+- `go test -race ./...`: `PASS | FAIL | UNVERIFIED`
+- `smoke/conformance`: `PASS | FAIL | UNVERIFIED`
+
+## Residual Risks
+- _riscos ou blockers_
+```
+
+## 5. Alinhamento com skills
+
+Esta policy fica alinhada com:
+
+- skill 15 para higiene de changelog e processo de release
+- skill 21 para rastreabilidade documental
+- skill 22 para classificacao SemVer, checklist e distribuicao
+</file>
+
+<file path="docs/release-versioning-policy.md">
+# Release Versioning Policy
+
+Normatiza a governanca de release e versionamento do `{{PROJECT_SLUG}}`.
+
+Traceabilidade:
+
+- `specs/020-repository-architecture.md`
+- `skills/22-release-versioning-governance/SKILL.md`
+- `skills/15-devx-ci-precommit-changelog/SKILL.md`
+
+## 1. Objetivo
+
+Definir como o `{{PROJECT_SLUG}}` classifica mudancas, protege consumidores e recomenda um caminho de distribuicao sem maquiar compatibilidade.
+
+## 2. Unidade de versionamento
+
+A unidade de versionamento e o modulo Go do repositorio.
+
+A biblioteca segue SemVer:
+
+- `major`: mudanca publica incompativel
+- `minor`: adicao publica retrocompativel
+- `patch`: correcao publica retrocompativel
+
+## 3. Linha atual
+
+A baseline atual permanece em `v0.x.y`.
+
+Regras para `v0.x.y`:
+
+- breaking change continua sendo breaking change
+- a classificacao continua sendo `major`
+- nao e permitido esconder ruptura sob `patch` ou `minor`
+- `v1.0.0` so pode ser recomendado por trilha futura com evidencia diagnostica explicita de estabilidade intencional da API publica, starter, docs e governanca de release
+
+## 4. Superficie publica
+
+Contam como superficie publica:
+
+1. contratos exportados em `pkg/*`
+2. `pkg/app` como ponte publica para o runtime
+3. comportamento observavel documentado por spec aprovada e ja implementado
+4. erros publicos, envelopes, semantica de cancelamento e ordem de execucao quando fizerem parte do contrato
+5. endpoints HTTP documentados como suportados
+6. schemas e contratos OpenAPI publicados pelo repositorio
+7. `/docs` e `/openapi.yaml` quando publicados como surface oficial de documentacao
+8. starter flow, examples oficiais suportados e configuracao documentada como caminho canonico
+
+Nao contam como superficie publica, por si so:
+
+1. `internal/*`
+2. `test/*`, fixtures e helpers de teste
+3. comments-only changes
+4. reports historicos e notas auxiliares sem contrato publico proprio
+5. refactors internos sem impacto observavel
+6. specs ainda nao implementadas
+
+## 5. Classificacao de impacto
+
+### `no release`
+
+Use quando a mudanca:
+
+- altera apenas specs, reports, docs, comments ou feature matrix
+- altera apenas `internal/*` sem impacto observavel
+- altera apenas testes, smoke checks ou fixtures
+- reconcilia OpenAPI, changelog ou docs com comportamento ja existente
+
+### `patch`
+
+Use quando a mudanca:
+
+- corrige bug sem quebrar a superficie publica
+- corrige validacao, erro, docs surface ou runtime de forma compativel
+- corrige OpenAPI ou docs para refletir comportamento ja existente
+- endurece comportamento sem exigir adaptacao do consumidor
+
+### `minor`
+
+Use quando a mudanca:
+
+- adiciona capability nova e retrocompativel
+- adiciona endpoint, tipo exportado, configuracao suportada ou ponto de extensao sem quebrar consumidores
+- amplia comportamento existente de forma opcional e compativel
+
+### `major`
+
+Use quando a mudanca:
+
+- remove, renomeia ou altera assinatura exportada em `pkg/*`
+- muda endpoint, payload, schema, SSE ou contrato OpenAPI de forma incompativel
+- muda o starter flow ou setup canonico de forma que force ajuste do consumidor
+- preserva simbolos, mas muda semantica observavel a ponto de quebrar consumidores
+
+## 6. Prerelease
+
+Use prerelease quando a mudanca e real e utilizavel, mas ainda nao merece promessa de estabilidade ampla.
+
+Tags recomendadas:
+
+- `vX.Y.Z-alpha.N`
+- `vX.Y.Z-beta.N`
+- `vX.Y.Z-rc.N`
+
+Estagios normativos:
+
+- `alpha.N`: candidato inicial para feedback tecnico, validacao antecipada ou formato ainda instavel. Use quando a capability existe e pode ser exercitada, mas ainda pode mudar shape, contrato de API, payload, docs ou comportamento observavel antes de uma linha estavel.
+- `beta.N`: candidato mais completo para integracao controlada. Use quando o comportamento principal ja esta presente, os contratos esperados estao documentados, os gaps conhecidos estao listados e a expectativa e refinamento localizado, nao redesenho amplo.
+- `rc.N`: candidato a release estavel. Use quando nao ha mudanca funcional ampla planejada antes da tag final, os gates relevantes estao verdes ou justificados, e so se esperam fixes localizados, ajustes documentais ou correcao de regressao encontrada na validacao final.
+
+`alpha`, `beta` e `rc` sao estagios de maturidade do candidato, nao substitutos para a classificacao SemVer. Eles nao podem mascarar breaking change, gate ausente, incompatibilidade conhecida ou blocker aberto. Se a mudanca for breaking, ela continua sendo `major`; se um gate critico estiver ausente, a recomendacao deve registrar `UNVERIFIED`, `PRERELEASE_TAG` ou `HOLD_RELEASE` conforme o risco.
+
+Use `PRERELEASE_TAG` quando houver qualquer uma das condicoes abaixo:
+
+1. capability nova ainda sem fechamento diagnostico suficiente
+2. gates relevantes em `UNVERIFIED`
+3. gaps conhecidos que nao bloqueiam experimentacao, mas ainda bloqueiam estabilidade
+4. necessidade de feedback antes da linha estavel
+
+## 7. Hotfix
+
+Use `HOTFIX_TAG` somente quando todas as condicoes forem verdadeiras:
+
+1. existe linha estavel ja publicada
+2. o problema e consumidor-facing e urgente
+3. a mudanca cabe claramente em `patch`
+4. o blast radius e pequeno e entendido
+5. o risco de esperar o proximo release normal e inaceitavel
+
+Hotfix nao serve para:
+
+- capability nova
+- breaking change
+- ajuste interno sem urgencia externa material
+
+## 8. Recomendacao de distribuicao
+
+Toda avaliacao deve produzir exatamente um caminho:
+
+- `NO_RELEASE`
+- `PRERELEASE_TAG`
+- `STABLE_TAG`
+- `HOTFIX_TAG`
+- `HOLD_RELEASE`
+
+Mapeamento operacional:
+
+- docs/spec/report only -> `NO_RELEASE`
+- capability compativel e gates verdes -> `STABLE_TAG`
+- capability util, mas ainda incompleta ou parcialmente verificada -> `PRERELEASE_TAG`
+- fix urgente em linha estavel -> `HOTFIX_TAG`
+- blockers ou gates criticos ausentes -> `HOLD_RELEASE`
+
+## 9. Gates minimos para release estavel
+
+Antes de recomendar `STABLE_TAG`, verificar:
+
+- `go test ./...`
+- `go test -race ./...`
+- smoke checks e conformance relevantes
+- alinhamento entre docs, OpenAPI e comportamento real quando a surface correspondente mudar
+- ausencia de blocker aberto para a capability afetada
+- coerencia entre feature matrix, reports e historia contada pelo release
+
+Se algum gate nao puder ser verificado, registrar `UNVERIFIED`.
+
+## 10. Imutabilidade
+
+Versao publicada nao pode ser alterada em lugar.
+
+Toda correcao posterior exige:
+
+- nova versao
+- novo tag
+- changelog e release notes coerentes com a nova decisao
+
+## 11. Alinhamento com a skill 22
+
+Esta policy operacionaliza no repositorio as mesmas fronteiras usadas pela skill `22-release-versioning-governance`:
+
+- SemVer-first
+- `pkg/*` e HTTP/OpenAPI documentados como superficie publica
+- `internal/*` como nao-publico salvo promocao explicita
+- `NO_RELEASE`, `PRERELEASE_TAG`, `STABLE_TAG`, `HOTFIX_TAG` e `HOLD_RELEASE`
+- uso de reports e diagnosticos como evidencia de maturidade
+</file>
+
 <file path="docs/releases/.gitkeep">
+
+</file>
+
+<file path="docs/reports/.gitkeep">
 
 </file>
 
@@ -4197,6 +4774,7 @@ Goal: ensure every change applies the right specialized skill and respects globa
   - `23-{{PROJECT_SLUG}}-sdd-autopilot`: interactive SDD autopilot for feature requests, dual-spec trails, diagnosis, reports and gates.
   - `24-agent-readiness-governance`: `@kodus/agent-readiness` analysis filtered for {{PROJECT_SLUG}}'s Go library/framework scope.
   - `25-{{PROJECT_SLUG}}-ultra-rigid-sdd`: ultra-rigid evidence-first SDD for phase planning, autopilot prompt generation, paired implementation and diagnosis specs, reconciliation, readiness/release gates, and framework-vs-application boundaries.
+  - `26-backlog-item-intake`: governed backlog intake for requests, gaps, bugs, diagnostics, recommendations and ideas persisted in `docs/backlog/Backlog.md`.
 
 ## Checklists
 **Before starting**
@@ -4228,6 +4806,7 @@ Goal: ensure every change applies the right specialized skill and respects globa
 - Example interactive request: user asks for a new feature from free text => load skills 05 + 23, then any domain-specific skills.
 - Example readiness review: user asks to run or apply `@kodus/agent-readiness` => load skills 20 + 21 + 24, and skill 23 when it is part of an interactive trail.
 - Example ultra-rigid phase planning: user asks for {{PROJECT_SLUG}} phase prompts, paired SDD specs, diagnosis gates, roadmap closure, or readiness confirmation => load skills 05 + 25, and skill 23 when it is part of an interactive trail.
+- Example backlog intake: user asks to register a gap, bug, recommendation or diagnostic finding in the backlog => load skills 05 + 23 + 25 + 26 before editing `docs/backlog/Backlog.md`.
 </file>
 
 <file path="skills/01-hexagonal-architecture/SKILL.md">
@@ -9069,6 +9648,605 @@ Use this reference when a request risks mixing framework responsibilities with a
 If a requested change is useful for many {{PROJECT_SLUG}} consumers and can be expressed as a reusable contract, it may belong in {{PROJECT_SLUG}}.
 
 If it encodes one product's domain, one channel's payload, one tenant's policy, or one external vendor workflow, keep it out of {{PROJECT_SLUG}} core and expose extension points instead.
+</file>
+
+<file path="skills/26-backlog-item-intake/SKILL.md">
+---
+name: backlog-item-intake
+description: Govern {{PROJECT_SLUG}} backlog intake. Use when turning requests, gaps, bugs, diagnostics, recommendations or ideas into canonical backlog items in docs/backlog/Backlog.md with SDD classification, evidence, implementation planning and paired autopilot prompts.
+---
+
+# Backlog Item Intake
+
+Goal: transformar entradas brutas em itens governados de backlog do `{{PROJECT_SLUG}}`, sem abrir capability fora de spec e sem tratar conversa, plano ou diagnóstico histórico como autorização de implementação.
+
+## When to Use
+
+Use esta skill quando o usuário pedir para:
+
+- registrar pedido, gap, bug, recomendação, diagnóstico ou ideia no backlog;
+- transformar achados de report em itens priorizáveis;
+- triagear candidatos antes de abrir trilha SDD;
+- criar prompts autopilot para implementação e diagnóstico de um item;
+- atualizar `docs/backlog/Backlog.md`.
+
+Não use para implementar o item. Esta skill termina no backlog governado e nos prompts/planos necessários para uma trilha posterior.
+
+## Required Reading
+
+Antes de editar backlog, leia:
+
+1. `AGENTS.md`
+2. `skills/00-skill-index/SKILL.md`
+3. `skills/05-{{PROJECT_SLUG}}-spec-architect/SKILL.md`
+4. `skills/23-{{PROJECT_SLUG}}-sdd-autopilot/SKILL.md`
+5. `skills/25-{{PROJECT_SLUG}}-ultra-rigid-sdd/SKILL.md`
+6. `docs/backlog/Backlog.md`
+7. `references/backlog-item-template.md`
+8. `references/backlog-classification-rules.md`
+9. `references/autopilot-prompt-template.md`
+10. `references/backlog-update-procedure.md`
+
+Leia também specs, reports e docs citados pela entrada. Se a entrada vier de fonte histórica, leia a fonte antes de promover qualquer candidato.
+
+## Non-Negotiables
+
+1. `docs/backlog/Backlog.md` é o backlog canônico.
+2. Não invente item real quando só houver estrutura inicial.
+3. Não migre lotes históricos automaticamente para `BLG-*`.
+4. Não use backlog como substituto de spec, diagnóstico, report ou aprovação humana.
+5. Todo item deve registrar evidência; quando faltar, escreva `evidência não fornecida`.
+6. Todo item implementável deve declarar spec governante existente ou `SPEC_GAP_BLOCKED`.
+7. Toda nova trilha futura deve exigir spec de construção e spec de diagnóstico.
+8. Não altere `automation/ROADMAP.json` nem `automation/PHASE_STATE.json` para representar backlog.
+9. Não crie capability de produto, {{UPSTREAM_OPS_NAME}}, hosted service, Admin UI, billing, quotas, RBAC ou control plane.
+10. Não altere `pkg/*`, `internal/*` ou API pública durante intake de backlog.
+
+## Intake Workflow
+
+### 1. Normalize a entrada
+
+Registre:
+
+- texto original ou fonte;
+- tipo: `feature`, `bug`, `docs`, `refactor`, `diagnosis_gap`, `parity_gap`, `research` ou `governance`;
+- objetivo observável;
+- evidência disponível;
+- specs candidatas;
+- skills candidatas;
+- incertezas materiais.
+
+Se objetivo, escopo, evidência ou aceite estiverem materialmente ausentes, classifique como candidato ou bloqueado; não promova para implementação.
+
+### 2. Deduplicate
+
+Antes de criar novo item:
+
+- busque IDs `BLG-[0-9]{4}` em `docs/backlog/Backlog.md`;
+- procure título, palavras-chave e specs relacionadas;
+- se já existir item equivalente, atualize o item existente com nova evidência em vez de duplicar.
+
+### 3. Classify
+
+Use `references/backlog-classification-rules.md` para preencher:
+
+- status;
+- prioridade;
+- severidade;
+- valor;
+- complexidade;
+- risco;
+- tipo de spec necessária;
+- impacto de API pública;
+- risco de breaking change;
+- decisão de escopo.
+
+### 4. Persist
+
+Use `references/backlog-update-procedure.md`.
+
+O próximo ID deve ser o maior `BLG-NNNN` existente + 1. Se nenhum item existir, comece em `BLG-0001`.
+
+### 5. Add implementation plan
+
+Cada item aprovado para backlog deve ter plano resumido:
+
+- specs a ler/criar;
+- arquivos prováveis;
+- passos de implementação;
+- testes e checks;
+- docs/reports esperados;
+- stop conditions.
+
+### 6. Add paired autopilot prompts
+
+Para itens não bloqueados por spec gap, inclua dois prompts no item:
+
+- `Prompt autopilot SDD - implementação`
+- `Prompt autopilot SDD - diagnóstico`
+
+Use `references/autopilot-prompt-template.md`. Prompts devem ser autocontidos e rejeitar implementação fora de spec.
+
+## Backlog Statuses
+
+- `candidate`: entrada registrada, ainda sem triagem completa.
+- `ready_for_spec`: recorte suficiente para criar/amendar specs.
+- `ready_for_implementation`: specs governantes existem e diagnóstico está definido.
+- `blocked`: falta decisão, evidência, spec ou escopo.
+- `in_progress`: trilha SDD em execução fora desta skill.
+- `done`: item concluído com report `PASS`.
+- `rejected`: fora de escopo, duplicado ou incompatível com non-goals.
+
+## Final Response Format
+
+Sempre responda com:
+
+- objetivo
+- specs lidas
+- skills aplicadas
+- arquivos alterados
+- comandos executados
+- testes executados
+- classificação
+- decisão final
+- gaps restantes
+</file>
+
+<file path="skills/26-backlog-item-intake/agents/openai.yaml">
+interface:
+  display_name: "{{PROJECT_TITLE}} Backlog Item Intake"
+  short_description: "Transforma pedidos, gaps e diagnósticos em itens governados de backlog com classificação SDD e prompts autopilot."
+  category: "developer"
+</file>
+
+<file path="skills/26-backlog-item-intake/references/autopilot-prompt-template.md">
+# Autopilot Prompt Template
+
+Use estes templates dentro de um item `BLG-*` quando o item estiver pronto para abrir trilha SDD posterior.
+
+Não gere prompt de implementação para item `rejected`. Para item `blocked`, gere prompt apenas para desbloqueio de spec/evidência.
+
+## Prompt autopilot SDD - implementação
+
+```md
+Execute o `interactive_sdd_autopilot` para implementar o item `<BLG-ID> - <título>` do backlog canônico `docs/backlog/Backlog.md`.
+
+Leia primeiro:
+- `AGENTS.md`
+- `skills/00-skill-index/SKILL.md`
+- `skills/05-{{PROJECT_SLUG}}-spec-architect/SKILL.md`
+- `skills/23-{{PROJECT_SLUG}}-sdd-autopilot/SKILL.md`
+- `skills/25-{{PROJECT_SLUG}}-ultra-rigid-sdd/SKILL.md`
+- `skills/26-backlog-item-intake/SKILL.md`
+- `<spec de construção governante>`
+- `<spec de diagnóstico governante>`
+- `docs/backlog/Backlog.md`
+
+Objetivo:
+Implementar somente o comportamento descrito no item `<BLG-ID>`, preservando o escopo de framework Go do `{{PROJECT_SLUG}}`.
+
+Escopo permitido:
+- `<listar recorte aprovado do item>`
+
+Escopo proibido:
+- Não alterar `automation/ROADMAP.json` nem `automation/PHASE_STATE.json`.
+- Não abrir {{UPSTREAM_OPS_NAME}}, hosted service, dashboard, Admin UI, control plane, auth enterprise, RBAC, billing ou quotas.
+- Não alterar `pkg/*`, `internal/*` ou API pública sem cobertura explícita da spec governante.
+- Não tratar este prompt, conversa ou backlog como substituto de spec.
+
+Entregáveis mínimos:
+1. Mudanças de implementação estritamente cobertas por spec.
+2. Testes atualizados ou adicionados quando houver mudança de comportamento.
+3. Docs/specs atualizadas se a mudança alterar comportamento observável ou API pública.
+4. Report diagnóstico da etapa no caminho definido pela spec de diagnóstico.
+
+Validações obrigatórias:
+- `<comandos específicos da spec de diagnóstico>`
+- `go test ./...`
+- `go vet ./...`
+
+Regras:
+- Pare se a spec de construção ou diagnóstico estiver ausente, ambígua ou incompatível.
+- Pare se qualquer validação obrigatória falhar sem correção possível dentro do escopo.
+- Registre gaps, skips e limitações no report.
+
+Formato de saída:
+- objetivo
+- specs lidas
+- skills aplicadas
+- arquivos alterados
+- comandos executados
+- testes executados
+- report lido
+- classificação
+- decisão
+- estado atualizado
+- gaps restantes
+- próxima etapa ou motivo de bloqueio
+```
+
+## Prompt autopilot SDD - diagnóstico
+
+```md
+Execute o diagnóstico do item `<BLG-ID> - <título>` conforme a spec de diagnóstico governante e o backlog canônico `docs/backlog/Backlog.md`.
+
+Leia primeiro:
+- `AGENTS.md`
+- `skills/00-skill-index/SKILL.md`
+- `skills/23-{{PROJECT_SLUG}}-sdd-autopilot/SKILL.md`
+- `skills/25-{{PROJECT_SLUG}}-ultra-rigid-sdd/SKILL.md`
+- `skills/26-backlog-item-intake/SKILL.md`
+- `<spec de construção governante>`
+- `<spec de diagnóstico governante>`
+- `docs/backlog/Backlog.md`
+
+Objetivo:
+Verificar por evidência se o item `<BLG-ID>` foi atendido sem expandir escopo proibido.
+
+Checklist obrigatório:
+1. Confirmar que os arquivos alterados correspondem ao item e às specs.
+2. Confirmar que não houve alteração proibida em `automation/ROADMAP.json`, `automation/PHASE_STATE.json`, `pkg/*`, `internal/*` ou API pública sem spec.
+3. Executar validações documentais ou de conteúdo aplicáveis.
+4. Executar `<comandos específicos da spec de diagnóstico>`.
+5. Executar `go test ./...` e `go vet ./...` se o ambiente permitir.
+6. Registrar skips com causa técnica.
+7. Gerar ou atualizar report diagnóstico no caminho exigido.
+
+Critérios de classificação:
+- `PASS`: todos os critérios obrigatórios estão atendidos ou justificados pela spec, sem stop condition ativa.
+- `PARTIAL`: há artefato material incompleto, validação não executada sem justificativa suficiente ou gap não bloqueante.
+- `FAIL`: escopo proibido foi alterado, spec foi violada ou validação obrigatória falhou.
+- `BLOCKED`: falta acesso, decisão humana, spec, evidência ou ambiente para concluir.
+
+Decisão final permitida:
+- `concluir solicitação`
+- `executar retry corretivo`
+- `parar por stop condition`
+- `abrir próxima etapa SDD`
+
+Formato de saída:
+- objetivo
+- specs lidas
+- skills aplicadas
+- arquivos revisados
+- comandos executados
+- testes executados
+- skips ou limitações
+- gaps restantes
+- classificação
+- decisão final
+```
+
+## Prompt de desbloqueio para item bloqueado
+
+```md
+Desbloqueie o item `<BLG-ID> - <título>` antes de qualquer implementação.
+
+Tarefa:
+Identificar a menor ação necessária para sair de `blocked`: criar/amendar spec de construção, criar/amendar spec de diagnóstico, coletar evidência, decidir escopo ou rejeitar o item.
+
+Saída obrigatória:
+- lacuna bloqueante
+- ação humana ou artefato necessário
+- specs a criar ou amendar
+- decisão recomendada: `ready_for_spec`, `ready_for_implementation`, `rejected` ou `blocked`
+```
+</file>
+
+<file path="skills/26-backlog-item-intake/references/backlog-classification-rules.md">
+# Backlog Classification Rules
+
+Use estas regras para classificar itens antes de persistir ou atualizar `docs/backlog/Backlog.md`.
+
+## Status
+
+- `candidate`: há fonte ou ideia, mas falta triagem completa.
+- `ready_for_spec`: o recorte é claro o bastante para criar ou amendar specs.
+- `ready_for_implementation`: specs de construção e diagnóstico existem e cobrem o item.
+- `blocked`: falta spec, evidência, decisão humana, acesso ou escopo material.
+- `in_progress`: uma trilha SDD real está em execução.
+- `done`: há report com `classification = PASS` e decisão final de conclusão.
+- `rejected`: item duplicado, fora do escopo ou incompatível com non-goals.
+
+## Tipo
+
+- `feature`: nova capacidade de framework.
+- `bug`: comportamento existente diverge de spec, teste ou contrato.
+- `docs`: documentação, report, runbook, skill ou regra.
+- `refactor`: reorganização sem mudança observável.
+- `diagnosis_gap`: lacuna descoberta por report, auditoria ou check.
+- `parity_gap`: diferença relevante contra {{UPSTREAM_NAME}} ou referência autorizada.
+- `research`: investigação ainda sem decisão de implementação.
+- `governance`: mudança em processo SDD, backlog, rules, prompts ou gates.
+
+## Prioridade
+
+- `P0`: bloqueia release, gate SDD, segurança de escopo ou capacidade central aprovada.
+- `P1`: destrava trilha importante ou corrige desvio relevante de spec.
+- `P2`: melhoria útil, não bloqueante, com valor claro.
+- `P3`: baixa urgência, pesquisa ou limpeza oportunista.
+
+Prioridade não deve ser herdada automaticamente de fonte histórica. Recalcule contra specs atuais e escopo do `{{PROJECT_SLUG}}`.
+
+## Severidade
+
+- `critical`: quebra contrato público, segurança de escopo, release gate ou integridade SDD.
+- `high`: falha funcional relevante ou risco alto de drift.
+- `medium`: lacuna verificável com workaround ou impacto limitado.
+- `low`: melhoria pequena, documentação ou ergonomia.
+- `none`: ideia, pesquisa ou item sem defeito associado.
+
+## Valor
+
+- `high`: reduz risco de implementação errada, destrava fase/trilha ou melhora paridade core.
+- `medium`: melhora descoberta, manutenção, diagnósticos ou cobertura.
+- `low`: valor incremental sem impacto imediato.
+
+## Complexidade
+
+- `S`: documentação ou ajuste local simples.
+- `M`: toca múltiplos docs, specs ou testes, sem API pública.
+- `L`: exige dual-spec, múltiplos módulos ou contrato público.
+- `XL`: exige desenho faseado, migração, compatibilidade ou decisão humana.
+
+## Decisão de escopo
+
+- `in_scope`: cabe no core/framework Go e possui cobertura normativa suficiente.
+- `spec_gap_blocked`: pode caber, mas falta spec de construção ou diagnóstico.
+- `consumer_app_responsibility`: pertence à aplicação consumidora, não ao framework.
+- `out_of_scope`: conflita com `specs/001-non-goals.md` ou {{UPSTREAM_OPS_NAME}}.
+- `duplicate`: já existe item equivalente.
+
+## Impacto em API pública
+
+- `none`: não toca `pkg/*`, exemplos públicos nem contratos observáveis.
+- `additive`: adiciona contrato público compatível, com spec e testes.
+- `breaking`: quebra contrato ou comportamento público; exige aprovação explícita.
+- `unknown`: impacto ainda não determinado; item deve ficar `blocked` ou `ready_for_spec`.
+
+## Regras de bloqueio imediato
+
+Classifique como `blocked` ou `rejected` quando:
+
+- faltar evidência material;
+- faltar spec governante para comportamento novo;
+- faltar spec de diagnóstico para nova trilha;
+- a proposta exigir {{UPSTREAM_OPS_NAME}}, hosted service, Admin UI, billing, quotas, RBAC ou control plane;
+- a proposta depender de `automation/ROADMAP.json` ou `automation/PHASE_STATE.json` como estado do backlog;
+- a proposta exigir alteração de API pública sem spec aprovada;
+- houver conflito entre specs sem decisão humana.
+
+## Regra para fontes históricas auxiliares
+
+Itens oriundos de fontes auxiliares em `docs/backlog/**` (planos importados, backlogs herdados, relatórios de pesquisa) devem permanecer como candidatos até triagem individual. Não converta lotes históricos em `BLG-*` de uma vez.
+
+Ao triagear um candidato histórico:
+
+1. leia a fonte histórica e o report de validação aplicável;
+2. filtre contra `specs/001-non-goals.md`;
+3. confirme se o recorte é framework-level, local-first e sem {{UPSTREAM_OPS_NAME}};
+4. registre specs necessárias;
+5. só então crie ou atualize item canônico.
+</file>
+
+<file path="skills/26-backlog-item-intake/references/backlog-item-template.md">
+# Backlog Item Template
+
+Use este template para cada item persistido em `docs/backlog/Backlog.md`.
+
+## Template
+
+```md
+### BLG-0000 - Título curto e verificável
+
+- **Status**: `candidate | ready_for_spec | ready_for_implementation | blocked | in_progress | done | rejected`
+- **Tipo**: `feature | bug | docs | refactor | diagnosis_gap | parity_gap | research | governance`
+- **Prioridade**: `P0 | P1 | P2 | P3`
+- **Severidade**: `critical | high | medium | low | none`
+- **Valor**: `high | medium | low`
+- **Complexidade**: `S | M | L | XL`
+- **Risco**: `high | medium | low`
+- **Decisão de escopo**: `in_scope | spec_gap_blocked | consumer_app_responsibility | out_of_scope | duplicate`
+- **Spec governante**: `specs/<arquivo>.md#<seção>` ou `SPEC_GAP_BLOCKED`
+- **Spec de diagnóstico**: `specs/<arquivo>.md#<seção>` ou `SPEC_GAP_BLOCKED`
+- **Skills aplicáveis**: `skills/00-skill-index/SKILL.md`, `skills/<id>/SKILL.md`
+- **Fonte**: caminho, issue, report, conversa ou `evidência não fornecida`
+- **Evidência**: evidência versionada, comando, report, trecho observado ou `evidência não fornecida`
+- **Impacto em API pública**: `none | additive | breaking | unknown`
+- **Risco de breaking change**: `none | low | medium | high | unknown`
+
+#### Problema
+
+Descreva o problema observável sem prometer solução.
+
+#### Resultado esperado
+
+Descreva o resultado verificável que tornaria o item concluído.
+
+#### Escopo proposto
+
+- Inclua apenas o recorte mínimo governado.
+- Cite limites de arquitetura e comportamento observável.
+
+#### Fora do escopo
+
+- Liste explicitamente {{UPSTREAM_OPS_NAME}}, hosted services, Admin UI, billing, quotas, RBAC, control plane ou outros itens proibidos quando relevantes.
+
+#### Plano de implementação
+
+1. Ler `AGENTS.md`, `skills/00-skill-index/SKILL.md` e specs governantes.
+2. Confirmar se specs existentes bastam ou se a trilha exige dual-spec.
+3. Implementar apenas o comportamento coberto por spec.
+4. Atualizar testes/docs/reports conforme impacto.
+5. Executar diagnóstico e registrar report.
+
+#### Testes e validações previstas
+
+- `go test ./...`
+- `go vet ./...`
+- Checks documentais específicos do item.
+- Outros comandos exigidos pela spec de diagnóstico.
+
+#### Stop conditions
+
+- Spec de construção ausente.
+- Spec de diagnóstico ausente.
+- Evidência material ausente.
+- Decisão humana pendente.
+- Escopo proibido por `specs/001-non-goals.md`.
+- Mudança exigiria `pkg/*`, `internal/*` ou API pública sem spec aprovada.
+
+#### Prompt autopilot SDD - implementação
+
+Cole aqui o prompt de implementação gerado a partir de `references/autopilot-prompt-template.md`.
+
+#### Prompt autopilot SDD - diagnóstico
+
+Cole aqui o prompt de diagnóstico gerado a partir de `references/autopilot-prompt-template.md`.
+
+#### Histórico
+
+- YYYY-MM-DD: item criado a partir de `<fonte>`.
+```
+
+## Regras de preenchimento
+
+- Não remova campos obrigatórios.
+- Use `evidência não fornecida` quando não houver prova verificável.
+- Use `SPEC_GAP_BLOCKED` quando a implementação depender de spec ausente.
+- Não inclua prompt executável para item `rejected`.
+- Para item `blocked`, o prompt deve começar com a ação de desbloqueio, não com implementação.
+</file>
+
+<file path="skills/26-backlog-item-intake/references/backlog-update-procedure.md">
+# Backlog Update Procedure
+
+Use este procedimento sempre que criar ou atualizar `docs/backlog/Backlog.md`.
+
+## 1. Preparar contexto
+
+Leia:
+
+1. `AGENTS.md`
+2. `skills/00-skill-index/SKILL.md`
+3. `skills/26-backlog-item-intake/SKILL.md`
+4. `docs/backlog/Backlog.md`
+5. fontes citadas pela entrada
+6. specs governantes ou candidatas
+
+## 2. Preservar fontes históricas
+
+Não edite nem migre automaticamente arquivos auxiliares em `docs/backlog/**` (planos importados, backlogs herdados, relatórios de pesquisa ou validação).
+
+Esses arquivos podem ser citados em:
+
+- `## Backlogs auxiliares e fontes históricas`
+- `## Itens candidatos a triagem`
+
+## 3. Deduplicar
+
+Antes de criar item:
+
+```bash
+rg "BLG-[0-9]{4}" docs/backlog/Backlog.md
+rg "<palavra-chave>|<spec>|<fonte>" docs/backlog/Backlog.md
+```
+
+Se existir item equivalente:
+
+- não crie novo ID;
+- atualize evidência, histórico ou status do item existente;
+- registre a fonte adicional em `Histórico`.
+
+## 4. Calcular próximo ID
+
+1. Liste todos os IDs `BLG-NNNN`.
+2. Use o maior número + 1.
+3. Se não houver item real, o primeiro ID é `BLG-0001`.
+4. Não reserve ID para candidato histórico não triado.
+
+## 5. Inserir ou atualizar item
+
+Use `references/backlog-item-template.md`.
+
+Campos obrigatórios:
+
+- status;
+- tipo;
+- prioridade;
+- severidade;
+- valor;
+- complexidade;
+- risco;
+- decisão de escopo;
+- spec governante;
+- spec de diagnóstico;
+- fonte;
+- evidência;
+- impacto em API pública;
+- risco de breaking change;
+- problema;
+- resultado esperado;
+- escopo;
+- fora do escopo;
+- plano;
+- testes;
+- stop conditions;
+- prompts quando aplicável;
+- histórico.
+
+## 6. Atualizar índice de priorização
+
+Em `## Índice de priorização`, liste apenas itens `BLG-*` reais.
+
+Ordenação recomendada:
+
+1. `P0`
+2. `P1`
+3. `P2`
+4. `P3`
+5. bloqueados por decisão humana
+6. rejeitados
+7. concluídos
+
+Dentro da mesma prioridade, prefira maior risco e maior valor.
+
+## 7. Atualizar candidatos a triagem
+
+Use `## Itens candidatos a triagem` para fontes ainda não promovidas.
+
+Cada candidato deve conter:
+
+- fonte;
+- recorte;
+- decisão atual;
+- motivo para não criar `BLG-*` ainda;
+- próxima ação de triagem.
+
+## 8. Validar
+
+Execute checks documentais:
+
+```bash
+test -f docs/backlog/Backlog.md
+rg "# {{PROJECT_TITLE}} Backlog|## Índice de priorização|## Itens" docs/backlog/Backlog.md
+rg "## Backlogs auxiliares e fontes históricas|## Itens candidatos a triagem" docs/backlog/Backlog.md
+rg "BLG-[0-9]{4}" docs/backlog/Backlog.md
+```
+
+Se o backlog ainda não tiver item real, o último comando pode não encontrar resultado. Registre isso como esperado, não como falha.
+
+## 9. Responder
+
+Informe:
+
+- item criado ou atualizado;
+- classificação;
+- decisão final;
+- arquivos alterados;
+- comandos executados;
+- gaps restantes;
+- próxima etapa.
 </file>
 
 <file path="specs/000-project-mission.md">

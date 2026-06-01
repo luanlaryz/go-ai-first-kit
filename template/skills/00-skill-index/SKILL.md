@@ -50,6 +50,7 @@ Goal: ensure every change applies the right specialized skill and respects globa
   - `23-{{PROJECT_SLUG}}-sdd-autopilot`: interactive SDD autopilot for feature requests, dual-spec trails, diagnosis, reports and gates.
   - `24-agent-readiness-governance`: `@kodus/agent-readiness` analysis filtered for {{PROJECT_SLUG}}'s Go library/framework scope.
   - `25-{{PROJECT_SLUG}}-ultra-rigid-sdd`: ultra-rigid evidence-first SDD for phase planning, autopilot prompt generation, paired implementation and diagnosis specs, reconciliation, readiness/release gates, and framework-vs-application boundaries.
+  - `26-backlog-item-intake`: governed backlog intake for requests, gaps, bugs, diagnostics, recommendations and ideas persisted in `docs/backlog/Backlog.md`.
 
 ## Checklists
 **Before starting**
@@ -81,3 +82,4 @@ Goal: ensure every change applies the right specialized skill and respects globa
 - Example interactive request: user asks for a new feature from free text => load skills 05 + 23, then any domain-specific skills.
 - Example readiness review: user asks to run or apply `@kodus/agent-readiness` => load skills 20 + 21 + 24, and skill 23 when it is part of an interactive trail.
 - Example ultra-rigid phase planning: user asks for {{PROJECT_SLUG}} phase prompts, paired SDD specs, diagnosis gates, roadmap closure, or readiness confirmation => load skills 05 + 25, and skill 23 when it is part of an interactive trail.
+- Example backlog intake: user asks to register a gap, bug, recommendation or diagnostic finding in the backlog => load skills 05 + 23 + 25 + 26 before editing `docs/backlog/Backlog.md`.

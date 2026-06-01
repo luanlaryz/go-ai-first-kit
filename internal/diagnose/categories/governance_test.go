@@ -19,6 +19,28 @@ func TestRequiredComplianceFilesMatchShellScript(t *testing.T) {
 	}
 }
 
+func TestGovernanceRewardsADRAndReleasePolicy(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, ".github/PULL_REQUEST_TEMPLATE.md", "## Objetivo\n## Specs lidas\n## Checklist\n## Gaps restantes\n")
+
+	without := governanceChecker{}.Check(newTestInventory(t, root))
+
+	writeTestFile(t, root, "docs/decisions/README.md", "# Architecture Decision Records (ADRs)\n")
+	writeTestFile(t, root, "docs/release-versioning-policy.md", "# Release Versioning Policy\n")
+
+	with := governanceChecker{}.Check(newTestInventory(t, root))
+
+	if with.QualityScore <= without.QualityScore {
+		t.Fatalf("expected ADR/release governance to improve quality: without=%d with=%d", without.QualityScore, with.QualityScore)
+	}
+	if hasFinding(with.Findings, "Sistema de ADR ausente") {
+		t.Fatal("did not expect ADR finding when docs/decisions present")
+	}
+	if hasFinding(with.Findings, "Politica de release ausente") {
+		t.Fatal("did not expect release policy finding when policy present")
+	}
+}
+
 func requiredFilesFromShell(script string) []string {
 	re := regexp.MustCompile(`(?s)required_files=\(\n(.*?)\n\)`)
 	match := re.FindStringSubmatch(script)
