@@ -22,8 +22,31 @@ Comandos principais:
 
 - `gakit help` mostra os comandos e flags disponíveis.
 - `gakit create` renderiza o `template/` embarcado, substitui placeholders, renomeia `go.mod.tmpl` para `go.mod`, aplica permissões executáveis e inicializa git.
+- `gakit template list` mostra o conteúdo do template embarcado.
 - `gakit diagnose --path <dir>` avalia DX, AI-first, security, arquitetura hexagonal, OpenAPI, documentação e governança com score ponderado.
 - `gakit diagnose --path <dir> --plan-prompt` imprime um prompt opcional para criar plano de correção SDD dual spec a partir dos achados; use `--plan-prompt-only --out ./reports` para persistir o prompt em Markdown sem perguntar.
+
+## CLI help
+
+```bash
+gakit
+gakit help
+gakit create --help
+```
+
+`gakit` sem argumentos mostra uma tip rápida.
+`gakit help` mostra a documentação completa da CLI.
+`gakit create --help` mostra detalhes do comando de criação.
+
+## Listar conteúdo do template
+
+```bash
+gakit template list
+gakit template list --tree
+gakit template list --json
+```
+
+`gakit template list` mostra o conteúdo do template embarcado. Use `--files-only` ou `--dirs-only` para filtrar a listagem.
 
 ## Uso rápido: prompt único
 

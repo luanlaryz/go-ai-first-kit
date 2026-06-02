@@ -11,11 +11,13 @@ import (
 	"unicode/utf8"
 
 	kit "github.com/inventa-co/go-ai-first-kit"
+	"github.com/inventa-co/go-ai-first-kit/internal/templatecatalog"
 )
 
 type Options struct {
-	Force   bool
-	InitGit bool
+	Force        bool
+	InitGit      bool
+	TemplateName string
 }
 
 type Result struct {
@@ -25,6 +27,9 @@ type Result struct {
 }
 
 func Render(ctx context.Context, targetDir string, params Params, opts Options) (Result, error) {
+	if _, err := templatecatalog.Resolve(opts.TemplateName); err != nil {
+		return Result{}, err
+	}
 	params.ApplyDefaults()
 	if err := params.Validate(); err != nil {
 		return Result{}, err
