@@ -8,7 +8,9 @@ Camadas trazidas em sincronizações após o bootstrap, parametrizadas e sem con
 
 - Backlog governado: `skills/26-backlog-item-intake/` e `docs/backlog/Backlog.md` (intake, triagem, classificação SDD e prompts autopilot).
 - Governança de release/changelog/ADR: `docs/decisions/` (sistema de ADRs MADR-like), `docs/release-versioning-policy.md`, `docs/release-notes-policy.md`, `docs/release-checklist.md` e `CHANGELOG.md` no formato Keep a Changelog + SemVer.
+- Inventário de maturidade AI: `docs/ai/maturity-inventory.md`, parametrizado e limitado a artefatos realmente renderizados.
+- Piso de Go 1.26.4 e reconciliação de referências históricas/normativas que apontavam para specs ou reports não presentes no starter.
 
 Divergências intencionais: a camada de GitHub Pages do `govolt` (`.github/workflows/pages.yml`, `scripts/check-pages-site.sh`, `make check-pages-site`) é específica daquele repositório e não entra no kit.
 
-O diagnóstico completo do diff `govolt → kit`, com matriz de paridade e tabela de decisão por item, está em [`docs/govolt-sync-diagnosis.md`](govolt-sync-diagnosis.md).
+O diagnóstico completo do diff `govolt → kit`, com matriz de paridade e tabela de decisão por item, está em [`docs/govolt-sync-diagnosis.md`](govolt-sync-diagnosis.md). O SHA aplicado e a janela de comparação ficam em [`docs/govolt-sync-baseline.json`](govolt-sync-baseline.json).

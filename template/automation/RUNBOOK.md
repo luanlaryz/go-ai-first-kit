@@ -26,13 +26,21 @@ Antes de qualquer implementacao, diagnostico ou atualizacao de estado, o Cursor 
 Depois deve identificar:
 
 1. `current_phase`;
-2. fase correspondente em `automation/ROADMAP.json`;
-3. spec de construcao da fase atual;
-4. spec de diagnostico da fase atual;
-5. report esperado da fase atual;
-6. gate esperado da fase atual;
-7. `retry_count`;
-8. estado de `blocked`.
+2. a entrada cujo `id` corresponde a `current_phase` em `automation/ROADMAP.json`;
+3. `name`, `spec_file`, `diagnosis_spec_file`, `report_file` e `advance_only_if` dessa entrada;
+4. `max_retries_per_phase` do roadmap;
+5. `retry_count`;
+6. estado de `blocked`.
+
+`automation/ROADMAP.json` e a fonte exclusiva de ordem, nomes, caminhos,
+gates e limite de retries do `phase_autopilot`. Nao deduza esses valores por
+numero de fase, convencao de nome ou exemplo historico.
+
+Leia `spec_file` e `diagnosis_spec_file` somente quando os arquivos existirem.
+Quando uma entrada futura apontar para um arquivo ausente, trate-o como
+candidato a criar; nao o apresente como leitura obrigatoria ja existente. A
+fase atual permanece bloqueada para implementacao e diagnostico ate que as duas
+specs existam.
 
 Se `blocked = true`, seguir a rotina de retomada apos bloqueio antes de executar qualquer nova fase.
 
@@ -55,14 +63,13 @@ O Cursor nao deve:
 
 Para a fase atual, executar obrigatoriamente:
 
-1. criar ou validar spec;
-2. implementar a spec;
-3. criar ou validar diagnosis spec;
-4. executar diagnostico;
-5. localizar e ler o report;
-6. atualizar `automation/PHASE_STATE.json`;
-7. avancar somente quando o gate for satisfeito;
-8. parar imediatamente quando houver stop condition.
+1. criar ou validar a dual-spec;
+2. implementar somente depois de as duas specs existirem e forem lidas;
+3. executar o diagnostico conforme a spec de diagnostico;
+4. localizar e ler o report;
+5. atualizar `automation/PHASE_STATE.json`;
+6. avancar somente quando o gate for satisfeito;
+7. parar imediatamente quando houver stop condition.
 
 ## 5. Criar Ou Validar Spec
 
@@ -78,10 +85,16 @@ Se existir:
 
 Se nao existir:
 
-1. criar a spec no caminho exato definido por `spec_file`;
-2. manter o nome da fase exatamente como definido em `automation/ROADMAP.json`;
-3. escrever objetivo, motivacao, pergunta principal, escopo, fora de escopo, contratos, arquitetura, testes, criterios de aceite e limites;
+1. tratar `spec_file` como candidato a criar;
+2. criar a spec no caminho exato definido por `spec_file`, quando a tarefa autorizar;
+3. registrar bloqueio se a spec nao puder ser criada;
 4. nao implementar antes de a spec existir.
+
+Ao criar a spec:
+
+1. manter o nome da fase exatamente como definido em `automation/ROADMAP.json`;
+2. escrever objetivo, motivacao, pergunta principal, escopo, fora de escopo, contratos, arquitetura, testes, criterios de aceite e limites;
+3. nao criar entrada nem alterar a ordem do roadmap.
 
 ## 6. Implementar
 
@@ -112,10 +125,12 @@ Se existir:
 
 Se nao existir:
 
-1. criar a spec no caminho exato definido por `diagnosis_spec_file`;
-2. vincular a diagnostico a fase atual;
-3. definir sinais observaveis, modos de falha, comandos, evidencias, troubleshooting, classificacao e decisao final;
-4. nao executar diagnostico antes de a spec existir.
+1. tratar `diagnosis_spec_file` como candidato a criar;
+2. criar a spec no caminho exato definido por `diagnosis_spec_file`, quando a tarefa autorizar;
+3. vincular a diagnostico a fase atual;
+4. definir sinais observaveis, modos de falha, comandos, evidencias, troubleshooting, classificacao e decisao final;
+5. registrar bloqueio se a spec nao puder ser criada;
+6. nao executar diagnostico antes de a spec existir.
 
 ## 8. Executar Diagnostico
 
@@ -169,7 +184,8 @@ Definir:
 
 ### 10.3 Ao Passar No Gate
 
-Se `classification` e `decision` forem exatamente os esperados:
+Se `classification` e `decision` forem exatamente
+`advance_only_if.classification` e `advance_only_if.decision` da entrada atual:
 
 1. definir `last_completed_phase` como a fase atual;
 2. definir `last_report` como o report lido;
@@ -177,9 +193,9 @@ Se `classification` e `decision` forem exatamente os esperados:
 4. definir `retry_count = 0`;
 5. definir `blocked = false`;
 6. definir `block_reason = ""`;
-7. se houver proxima fase, definir `current_phase` como a proxima fase;
-8. se houver proxima fase, definir `status = "pending"`;
-9. se a fase atual for 24, definir `status = "finished"` e manter `current_phase = 24`.
+7. se houver proxima entrada na ordem de `phases`, definir `current_phase` como o `id` dela;
+8. se houver proxima entrada, definir `status = "pending"`;
+9. se nao houver proxima entrada, manter `current_phase` no `id` concluido e definir `status = "finished"`.
 
 ### 10.4 Ao Bloquear
 
@@ -204,8 +220,8 @@ Avancar somente quando todas as condicoes forem verdadeiras:
 4. diagnostico foi executado;
 5. report foi gerado no caminho correto;
 6. report foi lido;
-7. `classification` e exatamente a esperada;
-8. `decision` e exatamente a esperada;
+7. `classification` e exatamente `advance_only_if.classification` da entrada atual;
+8. `decision` e exatamente `advance_only_if.decision` da entrada atual;
 9. `go test ./...` passou;
 10. `go test -race ./...` passou;
 11. OpenAPI passou quando aplicavel;
@@ -225,112 +241,21 @@ Ao parar por bloqueio, produzir:
 
 O Cursor nao deve continuar o roadmap enquanto `blocked = true`.
 
-## 13. Gates Por Fase
+## 13. Gate Da Entrada Atual
 
-### Fase 20
+O gate e definido exclusivamente pela entrada atual em
+`automation/ROADMAP.json`:
 
-Fase: `memory-adapter-expansion-and-storage-parity`
+1. localizar a entrada por `current_phase`;
+2. usar `spec_file` como caminho da spec de construcao;
+3. usar `diagnosis_spec_file` como caminho da spec de diagnostico;
+4. usar `report_file` como caminho do report;
+5. comparar a classificacao do report com `advance_only_if.classification`;
+6. comparar a decisao do report com `advance_only_if.decision`.
 
-Spec:
-
-`specs/580-phase-20-memory-adapter-expansion-and-storage-parity.md`
-
-Diagnosis spec:
-
-`specs/581-phase-20-memory-adapter-expansion-and-storage-parity-diagnosis.md`
-
-Report:
-
-`docs/reports/phase-20-memory-adapter-expansion-and-storage-parity-report.md`
-
-Gate:
-
-1. `classification = PASS`
-2. `decision = READY FOR PHASE 21`
-
-### Fase 21
-
-Fase: `agent-invocation-and-conversation-contract-parity`
-
-Spec:
-
-`specs/600-phase-21-agent-invocation-and-conversation-contract-parity.md`
-
-Diagnosis spec:
-
-`specs/601-phase-21-agent-invocation-and-conversation-contract-parity-diagnosis.md`
-
-Report:
-
-`docs/reports/phase-21-agent-invocation-and-conversation-contract-parity-report.md`
-
-Gate:
-
-1. `classification = PASS`
-2. `decision = READY FOR PHASE 22`
-
-### Fase 22
-
-Fase: `workflow-state-persistence-and-resume-parity`
-
-Spec:
-
-`specs/620-phase-22-workflow-state-persistence-and-resume-parity.md`
-
-Diagnosis spec:
-
-`specs/621-phase-22-workflow-state-persistence-and-resume-parity-diagnosis.md`
-
-Report:
-
-`docs/reports/phase-22-workflow-state-persistence-and-resume-parity-report.md`
-
-Gate:
-
-1. `classification = PASS`
-2. `decision = READY FOR PHASE 23`
-
-### Fase 23
-
-Fase: `resumable-streams-and-playground-runtime-parity`
-
-Spec:
-
-`specs/640-phase-23-resumable-streams-and-playground-runtime-parity.md`
-
-Diagnosis spec:
-
-`specs/641-phase-23-resumable-streams-and-playground-runtime-parity-diagnosis.md`
-
-Report:
-
-`docs/reports/phase-23-resumable-streams-and-playground-runtime-parity-report.md`
-
-Gate:
-
-1. `classification = PASS`
-2. `decision = READY FOR PHASE 24`
-
-### Fase 24
-
-Fase: `hosting-integration-and-{{UPSTREAM_NAME_LOWER}}-app-migration-readiness`
-
-Spec:
-
-`specs/660-phase-24-hosting-integration-and-{{UPSTREAM_NAME_LOWER}}-app-migration-readiness.md`
-
-Diagnosis spec:
-
-`specs/661-phase-24-hosting-integration-and-{{UPSTREAM_NAME_LOWER}}-app-migration-readiness-diagnosis.md`
-
-Report:
-
-`docs/reports/phase-24-hosting-integration-and-{{UPSTREAM_NAME_LOWER}}-app-migration-readiness-report.md`
-
-Gate:
-
-1. `classification = PASS`
-2. `decision = READY FOR MIGRATION EXECUTION`
+O report deve corresponder ao `id` e ao `name` da entrada atual. Nenhum caminho,
+nome, classificacao ou decisao pode ser substituido por uma lista hardcoded
+neste runbook.
 
 ## 14. Resposta Final Obrigatoria Do Cursor
 
@@ -387,8 +312,8 @@ Regras obrigatorias:
 6. O report da fase e a fonte de verdade para avanco. Nunca avance por narrativa, intencao, resumo otimista, testes verdes isolados ou ausencia aparente de erro.
 
 7. Avance somente quando:
-   - classification == PASS;
-   - decision for exatamente a decisao esperada da fase atual;
+   - classification for exatamente `advance_only_if.classification` da entrada atual;
+   - decision for exatamente `advance_only_if.decision` da entrada atual;
    - go test ./... passar;
    - go test -race ./... passar;
    - OpenAPI estiver valida quando aplicavel;
@@ -412,7 +337,7 @@ Regras obrigatorias:
    - rename/naming inconsistente afetando contrato publico;
    - roadmap inconsistente com automation/PHASE_STATE.json.
 
-9. Use no maximo 2 retries corretivos por fase. Depois disso, pare e registre bloqueio em automation/PHASE_STATE.json.
+9. Use no maximo `max_retries_per_phase` retries corretivos da entrada atual. Depois disso, pare e registre bloqueio em automation/PHASE_STATE.json.
 
 10. Ao bloquear, produza:
    - resumo do bloqueio;
@@ -428,15 +353,10 @@ Regras obrigatorias:
    - atualize last_decision;
    - zere retry_count;
    - marque blocked como false;
-   - avance current_phase para a proxima fase;
-   - deixe status como pending para a proxima fase.
+   - se houver proxima entrada em phases, avance current_phase para o id dela e deixe status como pending;
+   - se nao houver proxima entrada, mantenha current_phase no id concluido e defina status como finished.
 
-12. Ao concluir a Fase 24 com:
-   - classification = PASS;
-   - decision = READY FOR MIGRATION EXECUTION;
-   atualize automation/PHASE_STATE.json com status = finished e last_completed_phase = 24.
-
-13. Continue automaticamente fase por fase ate concluir todas as fases ou atingir uma stop condition.
+12. Continue automaticamente fase por fase ate concluir todas as entradas do roadmap ou atingir uma stop condition.
 
 Formato obrigatorio da resposta ao final de cada iteracao:
 - objetivo
@@ -480,11 +400,11 @@ Nao execute fase futura antes da fase atual passar no gate.
 Se automation/PHASE_STATE.json indicar blocked = true, pare a continuacao normal e use o fluxo de retomada apos bloqueio.
 
 Para a fase atual:
-1. leia a spec de construcao definida em automation/ROADMAP.json;
-2. crie a spec se ela ainda nao existir;
+1. localize spec_file e diagnosis_spec_file na entrada atual de automation/ROADMAP.json;
+2. leia cada spec somente se o arquivo existir; se nao existir, trate o caminho como candidato a criar e nao implemente antes de completar a dual-spec;
 3. implemente ou continue a implementacao somente dentro do escopo da fase atual;
-4. leia a spec de diagnostico definida em automation/ROADMAP.json;
-5. crie a spec de diagnostico se ela ainda nao existir;
+4. crie ou refine ambas as specs somente quando a tarefa autorizar;
+5. registre bloqueio se a dual-spec nao puder ser completada;
 6. execute o diagnostico;
 7. rode go test ./...;
 8. rode go test -race ./...;
@@ -493,11 +413,11 @@ Para a fase atual:
 11. leia o report completo;
 12. extraia classification e decision;
 13. atualize automation/PHASE_STATE.json;
-14. avance somente se classification == PASS e decision for exatamente a decisao esperada da fase atual.
+14. avance somente se classification e decision forem exatamente os valores de advance_only_if da entrada atual.
 
 Pare imediatamente se qualquer stop condition em automation/STOP_CONDITIONS.md ocorrer.
 
-Use no maximo 2 retries corretivos por fase. Se os retries forem excedidos, registre bloqueio em automation/PHASE_STATE.json e pare.
+Use no maximo o valor de max_retries_per_phase em automation/ROADMAP.json. Se os retries forem excedidos, registre bloqueio em automation/PHASE_STATE.json e pare.
 
 Formato obrigatorio da resposta:
 - objetivo
@@ -554,10 +474,13 @@ Procedimento obrigatorio:
 2. Localize a fase atual em automation/ROADMAP.json.
 
 3. Leia:
-   - spec de construcao da fase atual;
-   - spec de diagnostico da fase atual;
+   - a spec de construcao apontada por `spec_file`, somente se existir;
+   - a spec de diagnostico apontada por `diagnosis_spec_file`, somente se existir;
    - report da fase atual, se existir;
    - stop condition relacionada ao bloqueio.
+
+Se uma das specs estiver ausente, trate o caminho como candidato a criar e
+desbloqueie somente depois de completar a dual-spec conforme a entrada atual.
 
 4. Atue primeiro no desbloqueio da fase atual.
 
@@ -577,8 +500,8 @@ Procedimento obrigatorio:
    - extraia classification e decision.
 
 8. So desbloqueie automation/PHASE_STATE.json se:
-   - classification == PASS;
-   - decision for exatamente a decisao esperada da fase atual;
+   - classification for exatamente advance_only_if.classification da entrada atual;
+   - decision for exatamente advance_only_if.decision da entrada atual;
    - go test ./... passou;
    - go test -race ./... passou;
    - OpenAPI passou quando aplicavel;
@@ -592,7 +515,7 @@ Procedimento obrigatorio:
    - atualize last_completed_phase;
    - atualize last_report;
    - atualize last_decision;
-   - avance current_phase para a proxima fase, ou marque status = finished se a fase concluida for 24.
+   - avance current_phase para o id da proxima entrada, ou marque status = finished quando nao houver proxima entrada.
 
 10. Se o gate nao for satisfeito:
    - mantenha blocked = true;
@@ -601,7 +524,7 @@ Procedimento obrigatorio:
    - preserve o historico relevante em last_report e last_decision;
    - pare.
 
-11. Se retry_count exceder 2:
+11. Se retry_count exceder max_retries_per_phase:
    - mantenha blocked = true;
    - defina status = blocked;
    - registre block_reason como retries corretivos excedidos;

@@ -32,7 +32,7 @@ Goal: allow each {{DOMAIN_ACTOR}} to select providers/models/params safely while
 - **Don't** skip validation just because params are flexible.
 
 ## Interfaces / Contracts
-- Schema + cache described in [{{DOMAIN_ACTOR}}_model_config_schema.md](resources/{{DOMAIN_ACTOR}}_model_config_schema.md).
+- Schema + cache described in [model_config_schema.md](resources/model_config_schema.md).
 - Port example:
   ```go
   type {{DOMAIN_ACTOR_TITLE}}ModelConfigStore interface {

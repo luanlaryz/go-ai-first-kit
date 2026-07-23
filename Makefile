@@ -29,7 +29,7 @@ ifeq ($(STATICCHECK),)
 	@echo "staticcheck not found; install with: go install honnef.co/go/tools/cmd/staticcheck@latest"
 	@exit 1
 endif
-	$(STATICCHECK) ./...
+	$(STATICCHECK) $(PACKAGES)
 
 vet:
 	$(GO) vet $(PACKAGES)

@@ -1,7 +1,7 @@
 # AI Compliance Exceptions
 
 Este arquivo registra excecoes formais, pequenas e auditaveis para compliance, testes e enforcement da trilha de AI development.
-Ele existe para materializar a `Spec 350`, secao 5.5, sem criar bypass silencioso no checker.
+Ele e o unico caminho aceito para excecoes: nenhuma excecao vale sem registro auditavel aqui, e nenhum registro aqui cria bypass silencioso no checker.
 
 ## Estado atual
 
@@ -21,6 +21,6 @@ Cada excecao ativa deve listar:
 
 - `id`: `dependabot-pr-body-template`
   - `escopo`: `scripts/check-pr-body.sh` em eventos `pull_request` gerados pelo Dependabot.
-  - `justificativa`: Dependabot gera corpo de PR proprio com changelog e comandos operacionais, sem usar `.github/PULL_REQUEST_TEMPLATE.md`. Exigir headings humanos bloqueia a automacao leve de atualizacao de dependencias aprovada pela `Spec 726`, sem aumentar seguranca ou rastreabilidade do PR automatizado.
+  - `justificativa`: Dependabot gera corpo de PR proprio com changelog e comandos operacionais, sem usar `.github/PULL_REQUEST_TEMPLATE.md`. Exigir headings humanos bloquearia a automacao leve de atualizacao de dependencias sem aumentar seguranca ou rastreabilidade do PR automatizado; os demais checks de CI continuam obrigatorios.
   - `owner`: mantenedores do repositorio `{{PROJECT_SLUG}}`.
   - `criterio de revisao`: revisar quando a politica de PR template mudar, quando Dependabot permitir template customizado compativel ou quando a automacao de dependencia for substituida.

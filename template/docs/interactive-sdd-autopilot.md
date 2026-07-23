@@ -6,7 +6,22 @@ O `interactive_sdd_autopilot` e o modo de trabalho para transformar uma solicita
 
 Ele existe para orientar o desenvolvimento do repositorio. Ele nao cria API publica, runtime feature, dashboard, runner hospedado, {{UPSTREAM_OPS_NAME}} ou capability de produto do framework.
 
-Use este guia como onboarding humano. As fontes normativas continuam sendo `AGENTS.md`, `specs/680-phase-25-interactive-sdd-autopilot-foundation.md`, `specs/681-phase-25-interactive-sdd-autopilot-foundation-diagnosis.md`, `specs/700-phase-26-interactive-sdd-autopilot-verification-and-human-onboarding.md`, `specs/701-phase-26-interactive-sdd-autopilot-verification-and-human-onboarding-diagnosis.md`, `automation/INTERACTIVE_AUTOPILOT.md`, `automation/INTERACTIVE_RUNBOOK.md`, `automation/STOP_CONDITIONS.md` e `skills/23-{{PROJECT_SLUG}}-sdd-autopilot/SKILL.md`.
+Use este guia como onboarding humano. As fontes normativas sao `AGENTS.md`,
+as specs existentes e aplicaveis em `specs/`, `automation/INTERACTIVE_AUTOPILOT.md`,
+`automation/INTERACTIVE_RUNBOOK.md`, `automation/INTERACTIVE_STATE.json`,
+`automation/STOP_CONDITIONS.md` e
+`skills/23-{{PROJECT_SLUG}}-sdd-autopilot/SKILL.md`.
+
+No template recem-renderizado, os caminhos de specs garantidamente existentes
+sao `specs/000-project-mission.md`, `specs/001-non-goals.md`,
+`specs/010-feature-matrix.md`, `specs/020-repository-architecture.md`,
+`specs/680-phase-0-bootstrap-foundation.md` e
+`specs/681-phase-0-bootstrap-foundation-diagnosis.md`. As duas ultimas
+pertencem a fase atual do `phase_autopilot`; uma trilha interativa continua
+separada e usa `automation/INTERACTIVE_STATE.json`.
+
+Specs de uma trilha interativa que ainda nao existem sao candidatas a criar,
+nunca leitura obrigatoria antecipada.
 
 ## Quando Usar
 
@@ -80,7 +95,7 @@ Tipo: docs.
 Escopo conhecido: documentacao humana, exemplos e checklist de revisao.
 Fora do escopo: alterar gates, roadmap fixo, phase state, pkg/*, internal/* ou capability de produto.
 Incertezas: confirmar se a mudanca apenas documenta o fluxo ou se tambem altera regras de gate.
-Specs candidatas: Spec 700, Spec 701, Spec 680, Spec 681.
+Specs candidatas: specs de baseline relevantes e, se necessario, uma nova dual-spec a criar.
 Skills candidatas: 00, 05, 21, 23.
 Decisao inicial: tratar como intake; perguntar se houver mudanca de regra, ou seguir como amend documental se o escopo permanecer apenas em docs.
 ```
@@ -98,7 +113,7 @@ Resultado esperado: o Cursor deve perguntar ou bloquear por ambiguidade material
 
 A decisao segue `skills/05-{{PROJECT_SLUG}}-spec-architect/SKILL.md` e `skills/05-{{PROJECT_SLUG}}-spec-architect/references/decision-rules.md`.
 
-Use `amend` quando a mudanca pertence claramente a uma spec ou dominio ja governado. O smoke da Fase 26 fez isso: a solicitacao `phase-26-smoke-onboarding-docs` era documental, pertencia ao dominio da Fase 26 e foi governada por `Spec 700` e `Spec 701`, sem abrir nova dual-spec.
+Use `amend` quando a mudanca pertence claramente a uma spec existente e aprovada. Registre as secoes governantes antes de editar.
 
 Abra nova trilha dual-spec quando a mudanca introduzir novo bounded context, novo contrato principal, impacto transversal proprio ou diagnostico separado. Nesse caso, a implementacao so pode seguir depois de existirem:
 
@@ -151,15 +166,12 @@ Leia `automation/INTERACTIVE_STATE.json` para saber onde a trilha esta. Os campo
 12. `current_request.retry_count`: mostra retries consumidos;
 13. `current_request.last_classification` e `last_decision`: registram o ultimo gate;
 14. `current_request.completion_criteria`: mostra os criterios usados para concluir;
-15. `smoke_history`: preserva eventos do smoke da Fase 26, incluindo bloqueio e retomada.
-
-No smoke da Fase 26, o estado final registra `last_completed_request = "phase-26-smoke-onboarding-docs"`, `status = "completed"`, `last_classification = "PASS"` e `last_decision = "SMOKE COMPLETE - READY FOR PHASE 26 AUDIT"`.
 
 ## Diagnostico E Gate
 
-Ao terminar uma etapa implementavel, o Cursor deve executar o diagnostico definido pela spec diagnostica. Para mudancas documentais como o smoke da Fase 26, o diagnostico aceito incluiu:
+Ao terminar uma etapa implementavel, o Cursor deve executar o diagnostico definido pela spec diagnostica. Para uma mudanca documental, a spec pode exigir:
 
-1. validacao JSON de `automation/INTERACTIVE_STATE.json`, `automation/ROADMAP.json` e `automation/PHASE_STATE.json`;
+1. validacao JSON dos arquivos de estado alterados, quando aplicavel;
 2. `go test ./...`;
 3. `go test -race ./...`;
 4. `ReadLints` nos arquivos alterados;
@@ -228,47 +240,26 @@ Leia automation/INTERACTIVE_STATE.json, a spec de construcao, a spec de diagnost
 Corrija somente a causa do bloqueio e avance apenas se classification = PASS e decision autorizar.
 ```
 
-## Exemplo Completo Bem-Sucedido
+## Exemplo Ilustrativo De Conclusao
 
-Este exemplo usa o smoke operacional versionado da Fase 26 como fonte de verdade:
+Este fluxo e apenas ilustrativo e nao declara a existencia de artefatos
+historicos:
 
-1. Pedido inicial: adicionar ao onboarding humano exemplos de intake, pedido ambiguo, retomada apos bloqueio e checklist de revisao.
-2. Intake: `request_id = "phase-26-smoke-onboarding-docs"`, `request_type = "docs"`, objetivo documental, escopo restrito a docs, reports e `automation/INTERACTIVE_STATE.json`.
-3. Decisao de spec: `amend` em `Spec 700` e `Spec 701`, porque o pedido pertence ao dominio da Fase 26 e nao cria novo bounded context.
-4. Alteracao governada: docs e reports foram atualizados; `pkg/*`, `internal/*`, `ROADMAP.json` e `PHASE_STATE.json` ficaram fora do escopo.
-5. Diagnostico: validacao JSON, `go test ./...`, `go test -race ./...` e lints dos arquivos alterados passaram.
-6. Report: `docs/reports/phase-26-interactive-sdd-autopilot-smoke-report.md` declarou `classification = PASS`.
-7. Decisao: `SMOKE COMPLETE - READY FOR PHASE 26 AUDIT`.
-8. Estado: `automation/INTERACTIVE_STATE.json` registrou `status = "completed"` e preservou criterios de conclusao.
+1. o pedido inicial entra como `docs`, com escopo, fora de escopo e incertezas registrados;
+2. o intake decide entre amendar uma spec existente ou criar uma dual-spec;
+3. se uma nova trilha for necessaria, as specs de construcao e diagnostico sao criadas e lidas antes da implementacao;
+4. a mudanca e executada somente no escopo aprovado;
+5. o diagnostico coleta as evidencias e gera o report no caminho definido pela trilha;
+6. o report e lido por completo e precisa declarar `classification = PASS` com decisao que autorize conclusao;
+7. somente entao `automation/INTERACTIVE_STATE.json` pode registrar `status = "completed"`.
 
-Artefatos para conferir:
+## Exemplo Ilustrativo De Bloqueio E Retomada
 
-1. `docs/reports/phase-26-interactive-sdd-autopilot-smoke-evidence.md`;
-2. `docs/reports/phase-26-interactive-sdd-autopilot-smoke-report.md`;
-3. `automation/INTERACTIVE_STATE.json`;
-4. `docs/reports/phase-26-interactive-sdd-autopilot-verification-and-human-onboarding-report.md`.
-
-## Exemplo Completo Bloqueado E Retomado
-
-Este exemplo tambem vem do smoke da Fase 26.
-
-Fluxo bloqueado:
-
-1. A trilha chegou a `report_review` depois de intake, decisao de spec e alteracao documental planejada.
-2. Antes da criacao do report de smoke, o gate nao podia avancar porque nao existia report com `classification` e `decision`.
-3. A stop condition acionada foi report ausente ou sem classificacao/decisao explicita, conforme `automation/STOP_CONDITIONS.md`.
-4. O estado esperado ficou com `status = "blocked"`, `current_step = "report_review"`, `retry_count = 1`, `blocked = true` e acao humana recomendada para gerar report diagnostico e reler o gate.
-5. Nenhum gate, criterio de aceite, `ROADMAP.json` ou `PHASE_STATE.json` foi alterado para contornar o bloqueio.
-
-Retomada:
-
-1. A retomada leu `automation/INTERACTIVE_STATE.json`, `Spec 700`, `Spec 701` e `docs/reports/phase-26-interactive-sdd-autopilot-smoke-evidence.md`.
-2. A causa do bloqueio foi resolvida com a criacao de `docs/reports/phase-26-interactive-sdd-autopilot-smoke-report.md`.
-3. O diagnostico foi executado novamente.
-4. O report declarou `classification = PASS`.
-5. A decisao final autorizou conclusao do smoke.
-6. `retry_count` permaneceu `1`, preservando a tentativa corretiva.
-7. `automation/INTERACTIVE_STATE.json` preservou `smoke_history` com `blocked`, `resume` e `completed`.
+1. se a trilha chegar a `report_review` sem report com classificacao e decisao, ela fica bloqueada;
+2. o estado preserva `current_step`, `retry_count`, `blocked = true` e um `block_reason` objetivo;
+3. nenhum gate, criterio de aceite, `ROADMAP.json` ou `PHASE_STATE.json` pode ser alterado para contornar o bloqueio;
+4. a retomada le os artefatos existentes, corrige somente a causa dentro do escopo e reexecuta o diagnostico;
+5. o estado so pode desbloquear quando o novo report satisfizer o gate e nenhuma stop condition permanecer ativa.
 
 ## Checklist Humano Antes De Aceitar Conclusao
 

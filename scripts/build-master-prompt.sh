@@ -2,12 +2,19 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MODE="${1:-write}"
 
-python3 - "$ROOT_DIR" <<'PY'
+if [[ "$MODE" != "write" && "$MODE" != "--check" ]]; then
+	echo "usage: $0 [--check]" >&2
+	exit 2
+fi
+
+python3 - "$ROOT_DIR" "$MODE" <<'PY'
 from pathlib import Path
 import sys
 
 root = Path(sys.argv[1])
+mode = sys.argv[2]
 template = root / "template"
 out = root / "prompt-bootstrap-go-ai-first.md"
 
@@ -56,6 +63,14 @@ for path in sorted(template.rglob("*")):
         parts.append("\n")
     parts.append("</file>\n\n")
 
-out.write_text("".join(parts), encoding="utf-8")
-print(f"wrote {out}")
+rendered = "".join(parts)
+if mode == "--check":
+    if out.exists() and out.read_text(encoding="utf-8") == rendered:
+        print(f"up-to-date {out}")
+    else:
+        print(f"outdated generated prompt: {out}; run scripts/build-master-prompt.sh", file=sys.stderr)
+        sys.exit(1)
+else:
+    out.write_text(rendered, encoding="utf-8")
+    print(f"wrote {out}")
 PY

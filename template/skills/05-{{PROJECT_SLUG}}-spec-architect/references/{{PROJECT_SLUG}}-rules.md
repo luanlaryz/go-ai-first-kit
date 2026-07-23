@@ -4,11 +4,12 @@ Use este arquivo como resumo operacional do `AGENTS.md`.
 
 ## Source of truth
 - `specs/` governa requisitos por modulo.
-- `specs/000-compatibility-target.md` define compatibilidade e regras globais.
+- `specs/000-project-mission.md` define a missao e as regras globais.
 - `specs/001-non-goals.md` define exclusoes de escopo.
 - `specs/010-feature-matrix.md` funciona como checklist de cobertura, prioridade, risco e paridade.
 - `specs/020-repository-architecture.md` governa fronteiras entre `pkg/`, `internal/`, `test/` e `examples/`.
-- Specs especificas, como `030-agent`, `050-memory` e `070-workflows`, governam contratos de modulo.
+- `specs/680-phase-0-bootstrap-foundation.md` e `specs/681-phase-0-bootstrap-foundation-diagnosis.md` formam a dual-spec da fase atualmente declarada em `automation/ROADMAP.json`.
+- Specs de modulo ou de trilhas futuras sao candidatas a criar ou aprovar; nao devem ser exigidas como leitura antes de existirem e serem selecionadas pela tarefa ou pelo roadmap.
 - Se implementacao e spec divergirem, a spec prevalece.
 
 ## Workflow obrigatorio

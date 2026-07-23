@@ -8,6 +8,24 @@ import (
 
 type aiFirstChecker struct{}
 
+const maturityInventoryPath = "docs/ai/maturity-inventory.md"
+
+var maturityInventoryMarkers = []string{
+	"# Inventário de Maturidade AI",
+	"## Baseline entregue",
+	"## Evidência a produzir",
+	"## Gaps e limites",
+}
+
+const capabilitiesCatalogPath = "docs/ai/capabilities.md"
+
+var capabilitiesCatalogMarkers = []string{
+	"# Catálogo de capacidades",
+	"## Como ler este catálogo",
+	"## Capacidades",
+	"## Fora de escopo",
+}
+
 func (aiFirstChecker) Check(inv diagnose.Inventory) diagnose.CategoryResult {
 	const pillar = "AI-first"
 	requiredFiles := []string{
@@ -33,7 +51,7 @@ func (aiFirstChecker) Check(inv diagnose.Inventory) diagnose.CategoryResult {
 		}
 	}
 	qualityChecks := 0
-	qualityTotal := 6
+	qualityTotal := 8
 	if inv.Contains("AGENTS.md", "Spec Driven Development") || inv.Contains("AGENTS.md", "spec governante") {
 		qualityChecks++
 	}
@@ -52,6 +70,12 @@ func (aiFirstChecker) Check(inv diagnose.Inventory) diagnose.CategoryResult {
 	if inv.FileExists("docs/backlog/Backlog.md") && inv.FileExists("skills/26-backlog-item-intake/SKILL.md") {
 		qualityChecks++
 	}
+	if hasMaturityInventory(inv) {
+		qualityChecks++
+	}
+	if hasCapabilitiesCatalog(inv) {
+		qualityChecks++
+	}
 
 	findings := make([]diagnose.Finding, 0)
 	if !inv.FileExists("AGENTS.md") {
@@ -66,6 +90,12 @@ func (aiFirstChecker) Check(inv diagnose.Inventory) diagnose.CategoryResult {
 	if !inv.FileExists("docs/backlog/Backlog.md") {
 		findings = append(findings, finding(pillar, diagnose.SeverityWarn, "Backlog canonico ausente", "Adicionar docs/backlog/Backlog.md e a skill 26-backlog-item-intake para intake governado de backlog."))
 	}
+	if !hasMaturityInventory(inv) {
+		findings = append(findings, finding(pillar, diagnose.SeverityWarn, "Inventário de maturidade AI ausente ou incompleto", "Adicionar docs/ai/maturity-inventory.md com as seções de baseline, evidência e gaps."))
+	}
+	if !hasCapabilitiesCatalog(inv) {
+		findings = append(findings, finding(pillar, diagnose.SeverityWarn, "Catálogo de capacidades ausente ou incompleto", "Adicionar docs/ai/capabilities.md com as seções de leitura, capacidades e fora de escopo."))
+	}
 
 	return diagnose.CategoryResult{
 		Name:          pillar,
@@ -75,4 +105,12 @@ func (aiFirstChecker) Check(inv diagnose.Inventory) diagnose.CategoryResult {
 		Summary:       "Instrucoes para agentes, skills, prompts, briefs, autopilots e backlog",
 		Findings:      findings,
 	}
+}
+
+func hasMaturityInventory(inv diagnose.Inventory) bool {
+	return inv.FileExists(maturityInventoryPath) && inv.Contains(maturityInventoryPath, maturityInventoryMarkers...)
+}
+
+func hasCapabilitiesCatalog(inv diagnose.Inventory) bool {
+	return inv.FileExists(capabilitiesCatalogPath) && inv.Contains(capabilitiesCatalogPath, capabilitiesCatalogMarkers...)
 }

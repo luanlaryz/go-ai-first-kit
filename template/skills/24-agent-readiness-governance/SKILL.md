@@ -18,7 +18,10 @@ Before applying this skill, read:
 5. `skills/23-{{PROJECT_SLUG}}-sdd-autopilot/SKILL.md` when the work is part of an interactive autopilot trail
 6. `docs/interactive-sdd-autopilot.md` when the work is part of an interactive autopilot trail
 7. the current `agent-readiness` report if one already exists
-8. `specs/720-agent-readiness-governance-assessment.md` and `specs/721-agent-readiness-governance-assessment-diagnosis.md` when running the baseline {{PROJECT_SLUG}} readiness assessment
+
+When a readiness assessment requires a dedicated build or diagnosis spec that
+does not exist yet, treat those paths as candidates to create through the
+normal dual-spec decision. Do not require them as pre-existing reading.
 
 If release, CI, security or OpenAPI files are changed, also route through the relevant domain skill from `skills/00-skill-index/SKILL.md`.
 
@@ -45,7 +48,7 @@ Classify a finding as `worth_it_for_{{PROJECT_SLUG}}` when it improves one or mo
 - SDD/dual-spec workflow clarity
 - Cursor/agent rules and automation reliability
 - PR review quality and reproducibility
-- testability, smoke coverage, conformance or regression safety
+- testability, quick-check coverage, conformance or regression safety
 - CI checks for library quality
 - security hygiene relevant to a Go library/framework
 - open-source contributor onboarding

@@ -406,9 +406,10 @@ repos:
 
 ## 1. Project mission
 
-- `{{PROJECT_SLUG}}` existe para construir uma biblioteca em Go inspirada no nucleo do {{UPSTREAM_NAME}}.
-- O objetivo principal e atingir paridade funcional com o framework base do {{UPSTREAM_NAME}}.
-- A API publica deve ser idiomatica em Go, mesmo quando o conceito de origem vier do {{UPSTREAM_NAME}}.
+- `{{PROJECT_SLUG}}` existe para entregar `{{PROJECT_DESCRIPTION}}` como um projeto Go versionavel, testavel e operavel por humanos e agentes, conforme `specs/000-project-mission.md`.
+- Upstream de referencia declarado: `{{UPSTREAM_NAME}}`. Quando esse valor for `none`, nao existe framework de referencia e as regras de paridade upstream da secao 8 nao se aplicam.
+- Quando houver upstream real declarado, o objetivo e paridade funcional idiomatica em Go, nunca copia textual de API.
+- A API publica deve ser idiomatica em Go, mesmo quando um conceito vier do upstream declarado.
 - Serviços hospedados obrigatórios e control planes permanecem fora do escopo inicial.
 - O repositorio segue Spec Driven Development rigoroso.
 
@@ -419,12 +420,14 @@ repos:
 - `specs/001-non-goals.md` define o que nao pode entrar no escopo.
 - `specs/010-feature-matrix.md` deve ser usada como checklist de cobertura, prioridade, risco e paridade.
 - `specs/020-repository-architecture.md` define as fronteiras entre `pkg/`, `internal/`, `test/` e `examples/`.
-- Specs especificas de modulo, como `specs/030-agent.md` e `specs/031-app-instance.md`, governam o contrato daquele modulo.
-- `specs/680-phase-25-interactive-sdd-autopilot-foundation.md` e `specs/681-phase-25-interactive-sdd-autopilot-foundation-diagnosis.md` governam o modo `interactive_sdd_autopilot`.
+- `specs/680-phase-0-bootstrap-foundation.md` e `specs/681-phase-0-bootstrap-foundation-diagnosis.md` governam a fase 0 atualmente declarada em `automation/ROADMAP.json`.
+- Em um projeto recem-renderizado, as seis specs acima sao as unicas specs versionadas cuja leitura pode ser exigida por caminho fixo.
+- Specs de modulo ou de trilhas futuras sao candidatas a criar ou aprovar; nao devem ser tratadas como leitura obrigatoria enquanto nao existirem no repositorio e nao forem selecionadas pelo contexto da tarefa ou pelo roadmap.
 - `automation/AUTOPILOT.md`, `automation/RUNBOOK.md`, `automation/ROADMAP.json` e `automation/PHASE_STATE.json` governam o modo `phase_autopilot`.
 - `automation/INTERACTIVE_AUTOPILOT.md`, `automation/INTERACTIVE_RUNBOOK.md` e `automation/INTERACTIVE_STATE.json` governam trilhas interativas de feature request.
 - `docs/backlog/Backlog.md` e o backlog canonico para itens governados; fontes historicas em `docs/backlog/**` nao viram itens implementaveis sem triagem pela skill `skills/26-backlog-item-intake/SKILL.md`.
 - `docs/decisions/` (ADRs) registra decisoes de arquitetura e governanca; `docs/release-versioning-policy.md`, `docs/release-notes-policy.md` e `docs/release-checklist.md` governam versionamento, changelog e release notes alinhados a `skills/22-release-versioning-governance/SKILL.md`.
+- `docs/README.md`, `docs/ai/capabilities.md` e `docs/journeys/` sao superficies de navegacao e descoberta; elas nao substituem as specs nem este documento como fonte normativa.
 - Se houver conflito entre implementacao existente e spec aprovada, a spec prevalece.
 
 ## 3. Required execution workflow
@@ -439,7 +442,7 @@ repos:
 - Toda mudanca relevante deve ser validada contra a feature matrix como checklist de cobertura.
 - Toda trilha nova deve nascer com duas specs complementares: uma spec de construcao e uma spec de diagnostico.
 - Nao considerar uma trilha nova suficientemente spec driven se existir apenas spec de construcao sem spec de diagnostico.
-- Ao propor uma nova trilha, o agente deve verificar se ambas as specs existem. Se faltar qualquer uma delas, deve refinar o pedido ate fechar as duas antes de seguir para implementacao.
+- Ao propor uma nova trilha, o agente deve tratar os caminhos das duas specs como candidatos a criar, refinar o pedido ate fecha-las e so entao seguir para implementacao. Nao deve exigir a leitura de uma candidata antes de ela existir.
 - Para solicitacoes interativas de feature, evolucao, bug, refatoracao ou docs, usar `interactive_sdd_autopilot`: intake, requisitos, decisao de spec, dual-spec, implementacao, diagnostico, report e gate.
 - Para registrar pedidos, gaps, bugs, diagnosticos, recomendacoes ou ideias como backlog, usar `skills/26-backlog-item-intake/SKILL.md`, deduplicar em `docs/backlog/Backlog.md`, classificar escopo e specs, e nao promover fontes historicas em lote para itens `BLG-*`.
 - Para decisoes de release/versionamento e changelog, usar `skills/22-release-versioning-governance/SKILL.md` com `docs/release-versioning-policy.md`, `docs/release-notes-policy.md` e `docs/release-checklist.md`; registrar decisoes de arquitetura/governanca nao-obvias como ADR em `docs/decisions/`.
@@ -472,8 +475,8 @@ repos:
 
 - API publica deve ser pequena, intencional e orientada a contratos observaveis.
 - Priorizar `context.Context` como fronteira padrao para execucao, cancelamento e lifecycle.
-- Nomes, tipos e assinaturas em Go nao precisam copiar o {{UPSTREAM_NAME}} literalmente.
-- Diferencas em relacao ao {{UPSTREAM_NAME}} so sao aceitaveis quando forem idiomaticas em Go e estiverem explicitadas na spec correspondente ou na feature matrix.
+- Nomes, tipos e assinaturas em Go nao precisam copiar o upstream declarado literalmente.
+- Diferencas em relacao ao upstream declarado so sao aceitaveis quando forem idiomaticas em Go e estiverem explicitadas na spec correspondente ou na feature matrix.
 - Nunca alterar API publica sem atualizar a spec correspondente e os testes de contrato afetados.
 - Sempre documentar erros observaveis, comportamento de cancelamento e ordem de execucao quando fizerem parte do contrato.
 - Preferir construtores claros, options objetivas e tipos exportados apenas quando necessario.
@@ -507,11 +510,12 @@ repos:
 - Toda PR, patch ou entrega deve deixar claro qual spec foi atendida e quais criterios de aceitacao foram cobertos.
 - Quando uma feature for parcialmente implementada, registrar explicitamente o que ficou pendente e qual secao da spec ainda nao foi atendida.
 
-## 8. {{UPSTREAM_NAME}} parity rules
+## 8. Upstream parity rules
 
+- Estas regras aplicam-se somente quando o upstream declarado na missao nao for `none`.
 - O objetivo e paridade funcional, nao copia textual de API.
 - Comparar comportamento por entrada, saida, efeitos colaterais controlados, erros e ordem de operacoes relevantes.
-- Diferencas em relacao ao {{UPSTREAM_NAME}} so sao aceitaveis quando forem idiomaticas em Go e estiverem explicitadas na spec ou na feature matrix.
+- Diferencas em relacao ao upstream declarado so sao aceitaveis quando forem idiomaticas em Go e estiverem explicitadas na spec ou na feature matrix.
 - Nao aceitar divergencia "conveniente" apenas para simplificar a implementacao.
 - Nao introduzir nada de {{UPSTREAM_OPS_NAME}}.
 - Quando houver diferenca intencional de comportamento, registrar a justificativa e o impacto na paridade.
@@ -533,7 +537,7 @@ repos:
 - Explicar quais testes foram adicionados, atualizados ou executados.
 - Explicar gaps restantes, limitacoes conhecidas e o que ficou fora da entrega.
 - Se a tarefa nao puder ser implementada por falta de spec, dizer isso explicitamente e apontar o gap de especificacao.
-- Se houver divergencia intencional em relacao ao {{UPSTREAM_NAME}}, apontar a spec ou item da feature matrix que autoriza a diferenca.
+- Se houver divergencia intencional em relacao ao upstream declarado, apontar a spec ou item da feature matrix que autoriza a diferenca.
 
 ## 11. Interactive SDD autopilot
 
@@ -542,7 +546,7 @@ repos:
 - Primeiro normalize tipo, objetivo, escopo conhecido, incertezas, specs candidatas e skills candidatas.
 - Se houver ambiguidade material, pergunte antes de editar.
 - Decida entre amendar spec existente e criar nova trilha dual-spec usando `skills/05-{{PROJECT_SLUG}}-spec-architect/SKILL.md`.
-- Crie ou refine spec de construcao e spec de diagnostico antes de implementar comportamento novo.
+- Crie ou refine spec de construcao e spec de diagnostico antes de implementar comportamento novo; ate serem criadas, trate-as somente como candidatas, nunca como arquivos obrigatorios ja existentes.
 - Atualize `automation/INTERACTIVE_STATE.json` para registrar etapa, specs, report, classificacao, decisao, retries e bloqueio.
 - Avance automaticamente somente quando o report da etapa declarar `classification = PASS` e decisao final autorizar avanco ou conclusao.
 - Ao encerrar uma iteracao interativa, responder tambem com: `report lido`, `classificacao`, `decisao`, `estado atualizado` e `proxima etapa ou motivo de bloqueio`.
@@ -607,7 +611,25 @@ Ao publicar releases, mantenha os links de comparacao abaixo (assumem repositori
 <file path="CONTRIBUTING.md">
 # Contributing
 
-Use `docs/ai/task-input-format.md` para abrir tarefas para agentes. Rode `make setup` e `make test` localmente.
+Contribuições — humanas ou assistidas por AI — seguem o mesmo fluxo governado.
+
+## Antes de começar
+
+1. Leia [AGENTS.md](AGENTS.md) e [skills/00-skill-index/SKILL.md](skills/00-skill-index/SKILL.md).
+2. Prepare o ambiente: `make setup` e confirme a baseline com `make check-compliance` e `make test`.
+3. Primeira contribuição? Siga [docs/journeys/01-primeira-contribuicao.md](docs/journeys/01-primeira-contribuicao.md).
+
+## Abrindo uma tarefa
+
+Use [docs/ai/task-input-format.md](docs/ai/task-input-format.md) para estruturar o pedido: objetivo, specs lidas, arquivos em escopo, entregáveis mínimos, validações obrigatórias e formato de saída. O contrato mínimo de contribuição está em [docs/ai/ai-contribution-contract.md](docs/ai/ai-contribution-contract.md).
+
+Nenhuma feature entra sem spec governante. Se a spec não existir ou estiver ambígua, registre o gap em vez de implementar.
+
+## Validando e abrindo PR
+
+- Rode os checks aplicáveis: `make fmt-check`, `make lint`, `make vet`, `make test`, `make race`, `make test-security` e `pre-commit run --all-files`.
+- Abra o PR com `scripts/create-pr-from-template.sh`; o corpo segue [.github/PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md) e é validado no CI por `make check-pr-body`.
+- Se alguma validação obrigatória não se aplicar, registre a exceção formal em [docs/ai/compliance-exceptions.md](docs/ai/compliance-exceptions.md) — exceções informais não valem.
 </file>
 
 <file path="LICENSE">
@@ -627,7 +649,7 @@ GOFILES := $(shell find . -type f -name '*.go' -not -path './vendor/*')
 .PHONY: setup bootstrap test test-security security-tests vulncheck secrets-check lint fmt fmt-check race coverage vet check-compliance check-pr-body check-file-size
 
 setup:
-	@command -v $(GO) >/dev/null 2>&1 || { echo "go not found; install Go 1.26.3+ from https://go.dev/dl/"; exit 1; }
+	@command -v $(GO) >/dev/null 2>&1 || { echo "go not found; install Go 1.26.4+ from https://go.dev/dl/"; exit 1; }
 	$(GO) mod download
 	$(GO) install honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION)
 
@@ -689,9 +711,32 @@ check-file-size:
 
 {{PROJECT_DESCRIPTION}}
 
+## Instalação e primeiro uso
+
+Pré-requisito: Go 1.26.4+.
+
+```bash
+make setup
+make check-compliance
+make test
+```
+
+Evidência esperada: `check-compliance: ok` e testes verdes. Depois, se tiver a CLI do kit instalada, rode `gakit diagnose --path . --report-only` para ver a baseline AI-first por pilar.
+
 ## AI-first governance
 
-Antes de editar, leia `AGENTS.md`, `skills/00-skill-index/SKILL.md` e a spec governante em `specs/`.
+Antes de editar, leia [AGENTS.md](AGENTS.md), [skills/00-skill-index/SKILL.md](skills/00-skill-index/SKILL.md) e a spec governante em [specs/](specs/). O repositório segue Spec Driven Development com dual-spec: nenhuma trilha nova começa sem spec de construção e spec de diagnóstico.
+
+## Navegação
+
+- [docs/README.md](docs/README.md): central de documentação, organizada por papel.
+- [docs/ai/capabilities.md](docs/ai/capabilities.md): catálogo de capacidades, como ativá-las e seus limites.
+- [docs/journeys/README.md](docs/journeys/README.md): jornadas passo a passo (primeira contribuição, fase do roadmap, backlog e trilha SDD, release).
+- [docs/ai/maturity-inventory.md](docs/ai/maturity-inventory.md): baseline entregue, evidência a produzir e gaps.
+
+## O que este starter ainda não contém
+
+Um projeto recém-gerado não tem `pkg/`, `internal/`, `examples/`, API pública nem contrato OpenAPI: essas superfícies nascem apenas sob spec aprovada. Findings de diagnóstico sobre esses itens são gaps declarados por design, não defeitos.
 </file>
 
 <file path="SECURITY.md">
@@ -737,12 +782,17 @@ Solicitacoes interativas nao devem alterar `automation/PHASE_STATE.json`.
 A execucao deve seguir esta hierarquia:
 
 1. `AGENTS.md`;
-2. spec de construcao da fase atual;
-3. spec de diagnostico da fase atual;
-4. `automation/ROADMAP.json`;
+2. a entrada da fase atual em `automation/ROADMAP.json`;
+3. spec de construcao apontada por `spec_file`, depois que o arquivo existir;
+4. spec de diagnostico apontada por `diagnosis_spec_file`, depois que o arquivo existir;
 5. `automation/PHASE_STATE.json`;
 6. `automation/STOP_CONDITIONS.md`;
-7. report gerado para a fase atual.
+7. report apontado por `report_file` na entrada atual, depois que ele for gerado.
+
+`automation/ROADMAP.json` e a fonte exclusiva para a configuracao do
+`phase_autopilot`: ordem, identificador, nome, caminhos de specs, caminho de
+report, gate e limite de retries. Nenhuma fase, caminho ou decisao pode ser
+deduzida deste documento por convencao ou por exemplos historicos.
 
 Quando houver conflito entre implementacao e spec aprovada, a spec prevalece.
 
@@ -752,15 +802,27 @@ Quando o report estiver ausente, incompleto ou inconsistente com a fase atual, a
 
 ## 3. Roadmap Governado
 
-O autopilot deve executar exatamente estas fases, nesta ordem:
+O autopilot deve executar somente as entradas de `phases` em
+`automation/ROADMAP.json`, na ordem declarada no arquivo.
 
-1. Fase 20: `memory-adapter-expansion-and-storage-parity`
-2. Fase 21: `agent-invocation-and-conversation-contract-parity`
-3. Fase 22: `workflow-state-persistence-and-resume-parity`
-4. Fase 23: `resumable-streams-and-playground-runtime-parity`
-5. Fase 24: `hosting-integration-and-{{UPSTREAM_NAME_LOWER}}-app-migration-readiness`
+A entrada cujo `id` corresponde a `current_phase` em
+`automation/PHASE_STATE.json` define a fase atual. Cada entrada deve conter:
 
-O autopilot nao pode inventar fases, remover fases, reordenar fases, agrupar fases ou antecipar trabalho de fase futura.
+1. `id`;
+2. `name`;
+3. `spec_file`;
+4. `diagnosis_spec_file`;
+5. `report_file`;
+6. `advance_only_if.classification`;
+7. `advance_only_if.decision`.
+
+Os caminhos de specs de uma entrada futura sao candidatos a criar enquanto os
+arquivos ainda nao existirem. Eles passam a ser leitura obrigatoria somente
+depois de existirem. A implementacao e o diagnostico permanecem bloqueados ate
+que as duas specs da entrada atual existam.
+
+O autopilot nao pode inventar, remover, reordenar, agrupar ou antecipar
+entradas do roadmap.
 
 ## 4. Maquina De Estados
 
@@ -794,7 +856,7 @@ Transicoes permitidas:
 4. `diagnosing` -> `blocked`
 5. `running` -> `blocked`
 6. `completed` -> `pending` da proxima fase
-7. `completed` da Fase 24 -> `finished`
+7. `completed` -> `finished` quando nao houver proxima entrada no roadmap
 
 Qualquer transicao fora dessas deve ser tratada como inconsistencia de estado.
 
@@ -815,16 +877,26 @@ Se a spec existir:
 
 Se a spec nao existir:
 
-1. criar a spec no caminho exato definido em `automation/ROADMAP.json`;
-2. respeitar `AGENTS.md`;
-3. respeitar a fase e o nome definidos no roadmap;
-4. nao criar fase nova;
-5. nao alterar a ordem do roadmap;
-6. nao implementar antes de a spec existir.
+1. tratar o caminho de `spec_file` como candidato a criar para a entrada atual;
+2. criar a spec no caminho exato definido em `automation/ROADMAP.json`, quando a tarefa autorizar a criacao;
+3. registrar o bloqueio se a criacao nao estiver autorizada ou nao puder completar a dual-spec;
+4. nao tratar a spec ausente como leitura ja realizada;
+5. nao implementar antes de a spec existir.
+
+Ao criar a spec candidata:
+
+1. respeitar `AGENTS.md`;
+2. respeitar o identificador e o nome definidos no roadmap;
+3. nao criar entrada nova;
+4. nao alterar a ordem do roadmap.
 
 ### 5.2 Implementar A Spec Da Fase
 
-A implementacao deve ficar restrita ao escopo da fase atual.
+A implementacao deve ficar restrita ao escopo da entrada atual.
+O autopilot somente pode iniciar esta etapa depois que `spec_file` e
+`diagnosis_spec_file` existirem e tiverem sido lidos.
+Se a spec de diagnostico ainda estiver ausente, concluir a etapa 5.3 antes de
+iniciar qualquer implementacao.
 
 O autopilot deve:
 
@@ -834,26 +906,30 @@ O autopilot deve:
 4. atualizar documentacao operacional ou publica quando houver impacto observavel;
 5. manter `pkg/*` livre de dependencia em `internal/*`, exceto pela ponte publica permitida em `pkg/app`;
 6. manter rastreabilidade entre spec, codigo, testes e docs;
-7. nao abrir capability nova fora da fase atual;
+7. nao abrir capability nova fora da entrada atual;
 8. nao mascarar gap com documentacao narrativa.
 
 ### 5.3 Criar Ou Validar A Spec De Diagnostico
 
-O autopilot deve localizar a spec de diagnostico definida em `automation/ROADMAP.json`.
+O autopilot deve localizar a spec de diagnostico definida em
+`automation/ROADMAP.json`.
 
 Se a spec existir:
 
 1. ler a spec completa;
 2. identificar sinais observaveis, modos de falha, comandos, evidencias esperadas e criterio de confirmacao;
-3. verificar que a auditoria consegue classificar a fase como `PASS`, `PARTIAL`, `FAIL` ou `BLOCKED`;
+3. verificar que a auditoria consegue classificar a fase conforme o gate da entrada;
 4. verificar que a auditoria exige decisao final explicita.
 
 Se a spec nao existir:
 
-1. criar a spec no caminho exato definido em `automation/ROADMAP.json`;
-2. vincular a spec de diagnostico a fase atual;
-3. incluir sinais observaveis, sintomas de falha, hipoteses, metricas, logs, traces, health checks quando aplicavel, comandos de verificacao, troubleshooting e criterio de confirmacao;
-4. nao executar diagnostico antes de a spec existir.
+1. tratar o caminho de `diagnosis_spec_file` como candidato a criar para a entrada atual;
+2. respeitar `AGENTS.md`;
+3. criar a spec no caminho exato definido em `automation/ROADMAP.json`, quando a tarefa autorizar a criacao;
+4. vincular a spec de diagnostico a entrada atual;
+5. incluir sinais observaveis, sintomas de falha, hipoteses, metricas, logs, traces, health checks quando aplicavel, comandos de verificacao, troubleshooting e criterio de confirmacao;
+6. registrar bloqueio se a spec nao puder ser criada;
+7. nao executar diagnostico antes de a spec existir.
 
 ### 5.4 Executar O Diagnostico
 
@@ -875,13 +951,8 @@ Falha em qualquer validacao obrigatoria e bloqueio, exceto quando a spec de diag
 
 ### 5.5 Localizar O Report Gerado
 
-O autopilot deve localizar o report no caminho exato da fase atual:
-
-1. Fase 20: `docs/reports/phase-20-memory-adapter-expansion-and-storage-parity-report.md`
-2. Fase 21: `docs/reports/phase-21-agent-invocation-and-conversation-contract-parity-report.md`
-3. Fase 22: `docs/reports/phase-22-workflow-state-persistence-and-resume-parity-report.md`
-4. Fase 23: `docs/reports/phase-23-resumable-streams-and-playground-runtime-parity-report.md`
-5. Fase 24: `docs/reports/phase-24-hosting-integration-and-{{UPSTREAM_NAME_LOWER}}-app-migration-readiness-report.md`
+O autopilot deve localizar o report no caminho exato de `report_file` da
+entrada atual em `automation/ROADMAP.json`.
 
 Report ausente e stop condition.
 
@@ -900,29 +971,9 @@ A classificacao deve ser uma destas:
 3. `FAIL`
 4. `BLOCKED`
 
-A decisao deve ser exatamente a decisao esperada da fase atual.
-
-Gates esperados:
-
-1. Fase 20:
-   - `classification = PASS`
-   - `decision = READY FOR PHASE 21`
-
-2. Fase 21:
-   - `classification = PASS`
-   - `decision = READY FOR PHASE 22`
-
-3. Fase 22:
-   - `classification = PASS`
-   - `decision = READY FOR PHASE 23`
-
-4. Fase 23:
-   - `classification = PASS`
-   - `decision = READY FOR PHASE 24`
-
-5. Fase 24:
-   - `classification = PASS`
-   - `decision = READY FOR MIGRATION EXECUTION`
+A classificacao e a decisao devem corresponder exatamente a
+`advance_only_if.classification` e `advance_only_if.decision` da entrada atual
+em `automation/ROADMAP.json`.
 
 Decisao ausente e stop condition.
 
@@ -952,8 +1003,8 @@ Quando a fase passa no gate:
 4. `retry_count = 0`;
 5. `blocked = false`;
 6. `block_reason = ""`;
-7. se houver proxima fase, `current_phase` recebe a proxima fase e `status = "pending"`;
-8. se a fase concluida for a Fase 24, `current_phase = 24` e `status = "finished"`.
+7. se houver proxima entrada na ordem de `phases`, `current_phase` recebe o `id` dela e `status = "pending"`;
+8. se nao houver proxima entrada, `current_phase` permanece no `id` concluido e `status = "finished"`.
 
 Quando a fase bloqueia:
 
@@ -971,8 +1022,8 @@ O autopilot so pode avancar quando todas as condicoes forem verdadeiras:
 
 1. report existe no caminho esperado;
 2. report corresponde a fase atual;
-3. `classification == PASS`;
-4. `decision` e exatamente a decisao esperada para a fase atual;
+3. `classification` e exatamente `advance_only_if.classification` da entrada atual;
+4. `decision` e exatamente `advance_only_if.decision` da entrada atual;
 5. `go test ./...` passou;
 6. `go test -race ./...` passou;
 7. validacao OpenAPI passou quando aplicavel;
@@ -1002,7 +1053,8 @@ O autopilot tambem nao deve avancar por inferencia baseada em testes verdes se o
 
 ## 7. Retry Policy
 
-Cada fase permite no maximo `2` retries corretivos.
+Cada fase permite no maximo o valor de `max_retries_per_phase` definido em
+`automation/ROADMAP.json`.
 
 Retry corretivo significa uma tentativa de corrigir falhas identificadas durante implementacao, testes, diagnostico ou leitura do report da fase atual.
 
@@ -1015,7 +1067,7 @@ Politica:
 5. reler o gate;
 6. avancar somente se o gate for satisfeito.
 
-Se `retry_count` exceder `2`, o autopilot deve parar.
+Se `retry_count` exceder `max_retries_per_phase`, o autopilot deve parar.
 
 Ao parar por retries excedidos, deve produzir um relatorio curto de bloqueio contendo:
 
@@ -1097,16 +1149,15 @@ Evidencias nao aceitas como conclusao de fase:
 
 ## 11. Encerramento Da Automacao
 
-O autopilot termina com sucesso somente quando a Fase 24 tiver:
+O autopilot termina com sucesso somente quando a ultima entrada, conforme a
+ordem de `phases` em `automation/ROADMAP.json`, tiver:
 
-1. report no caminho `docs/reports/phase-24-hosting-integration-and-{{UPSTREAM_NAME_LOWER}}-app-migration-readiness-report.md`;
-2. `classification = PASS`;
-3. `decision = READY FOR MIGRATION EXECUTION`;
-4. `go test ./...` verde;
-5. `go test -race ./...` verde;
-6. nenhuma stop condition ativa;
-7. `automation/PHASE_STATE.json` com `status = "finished"`;
-8. `last_completed_phase = 24`.
+1. report no caminho definido em `report_file`;
+2. classificacao e decisao exatamente iguais ao objeto `advance_only_if`;
+3. validacoes obrigatorias da spec de diagnostico aprovadas;
+4. nenhuma stop condition ativa;
+5. `automation/PHASE_STATE.json` com `status = "finished"`;
+6. `last_completed_phase` igual ao `id` da ultima entrada.
 
 Qualquer outra parada deve ser tratada como bloqueio operacional.
 </file>
@@ -1138,14 +1189,19 @@ Este modo e aditivo ao `phase_autopilot`. Ele nao substitui o roadmap fixo.
 A execucao interativa deve seguir esta hierarquia:
 
 1. `AGENTS.md`;
-2. `specs/680-phase-25-interactive-sdd-autopilot-foundation.md`;
-3. `specs/681-phase-25-interactive-sdd-autopilot-foundation-diagnosis.md`;
-4. `skills/23-{{PROJECT_SLUG}}-sdd-autopilot/SKILL.md`;
-5. spec de construcao da trilha atual;
-6. spec de diagnostico da trilha atual;
+2. `skills/23-{{PROJECT_SLUG}}-sdd-autopilot/SKILL.md`;
+3. spec de construcao aprovada da trilha atual, quando existir;
+4. spec de diagnostico aprovada da trilha atual, quando existir;
+5. `automation/INTERACTIVE_AUTOPILOT.md`;
+6. `automation/INTERACTIVE_RUNBOOK.md`;
 7. `automation/INTERACTIVE_STATE.json`;
 8. `automation/STOP_CONDITIONS.md`;
-9. report da etapa atual.
+9. report da etapa atual, quando tiver sido gerado.
+
+Uma spec ainda inexistente e apenas candidata durante intake e decisao de spec.
+Ela so passa a ser leitura obrigatoria depois de criada ou aprovada. Nenhuma
+implementacao ou diagnostico de comportamento novo pode iniciar sem a dual-spec
+existente.
 
 Quando houver conflito entre pedido inicial e spec versionada, a spec versionada prevalece.
 
@@ -1267,11 +1323,9 @@ Antes de qualquer edicao, leia:
 2. `skills/00-skill-index/SKILL.md`;
 3. `skills/05-{{PROJECT_SLUG}}-spec-architect/SKILL.md`;
 4. `skills/23-{{PROJECT_SLUG}}-sdd-autopilot/SKILL.md`;
-5. `specs/680-phase-25-interactive-sdd-autopilot-foundation.md`;
-6. `specs/681-phase-25-interactive-sdd-autopilot-foundation-diagnosis.md`;
-7. `automation/INTERACTIVE_AUTOPILOT.md`;
-8. `automation/INTERACTIVE_STATE.json`;
-9. `automation/STOP_CONDITIONS.md`.
+5. `automation/INTERACTIVE_AUTOPILOT.md`;
+6. `automation/INTERACTIVE_STATE.json`;
+7. `automation/STOP_CONDITIONS.md`.
 
 Depois identifique:
 
@@ -1284,6 +1338,11 @@ Depois identifique:
 7. report esperado;
 8. `retry_count`;
 9. estado de `blocked`.
+
+Leia uma spec de construcao ou diagnostico da trilha somente se ela existir.
+Durante intake, caminhos de specs ainda inexistentes sao candidatos a criar,
+nunca arquivos obrigatorios que ja devam ser lidos. Antes de implementar
+comportamento novo, complete e leia a dual-spec.
 
 ## 3. Intake
 
@@ -1395,8 +1454,6 @@ Leia primeiro:
 - skills/00-skill-index/SKILL.md
 - skills/05-{{PROJECT_SLUG}}-spec-architect/SKILL.md
 - skills/23-{{PROJECT_SLUG}}-sdd-autopilot/SKILL.md
-- specs/680-phase-25-interactive-sdd-autopilot-foundation.md
-- specs/681-phase-25-interactive-sdd-autopilot-foundation-diagnosis.md
 - automation/INTERACTIVE_AUTOPILOT.md
 - automation/INTERACTIVE_STATE.json
 - automation/STOP_CONDITIONS.md
@@ -1404,8 +1461,8 @@ Leia primeiro:
 Comece por intake.
 Levante requisitos.
 Decida entre amendar spec existente ou abrir nova trilha dual-spec.
-Crie ou refine spec de construcao.
-Crie spec de diagnostico.
+Leia specs existentes somente quando forem relevantes e estiverem presentes.
+Trate specs novas como candidatas a criar; crie ou refine a dual-spec antes de implementar.
 Implemente somente depois das specs suficientes.
 Execute diagnostico.
 Leia o report.
@@ -1528,13 +1585,21 @@ Antes de qualquer implementacao, diagnostico ou atualizacao de estado, o Cursor 
 Depois deve identificar:
 
 1. `current_phase`;
-2. fase correspondente em `automation/ROADMAP.json`;
-3. spec de construcao da fase atual;
-4. spec de diagnostico da fase atual;
-5. report esperado da fase atual;
-6. gate esperado da fase atual;
-7. `retry_count`;
-8. estado de `blocked`.
+2. a entrada cujo `id` corresponde a `current_phase` em `automation/ROADMAP.json`;
+3. `name`, `spec_file`, `diagnosis_spec_file`, `report_file` e `advance_only_if` dessa entrada;
+4. `max_retries_per_phase` do roadmap;
+5. `retry_count`;
+6. estado de `blocked`.
+
+`automation/ROADMAP.json` e a fonte exclusiva de ordem, nomes, caminhos,
+gates e limite de retries do `phase_autopilot`. Nao deduza esses valores por
+numero de fase, convencao de nome ou exemplo historico.
+
+Leia `spec_file` e `diagnosis_spec_file` somente quando os arquivos existirem.
+Quando uma entrada futura apontar para um arquivo ausente, trate-o como
+candidato a criar; nao o apresente como leitura obrigatoria ja existente. A
+fase atual permanece bloqueada para implementacao e diagnostico ate que as duas
+specs existam.
 
 Se `blocked = true`, seguir a rotina de retomada apos bloqueio antes de executar qualquer nova fase.
 
@@ -1557,14 +1622,13 @@ O Cursor nao deve:
 
 Para a fase atual, executar obrigatoriamente:
 
-1. criar ou validar spec;
-2. implementar a spec;
-3. criar ou validar diagnosis spec;
-4. executar diagnostico;
-5. localizar e ler o report;
-6. atualizar `automation/PHASE_STATE.json`;
-7. avancar somente quando o gate for satisfeito;
-8. parar imediatamente quando houver stop condition.
+1. criar ou validar a dual-spec;
+2. implementar somente depois de as duas specs existirem e forem lidas;
+3. executar o diagnostico conforme a spec de diagnostico;
+4. localizar e ler o report;
+5. atualizar `automation/PHASE_STATE.json`;
+6. avancar somente quando o gate for satisfeito;
+7. parar imediatamente quando houver stop condition.
 
 ## 5. Criar Ou Validar Spec
 
@@ -1580,10 +1644,16 @@ Se existir:
 
 Se nao existir:
 
-1. criar a spec no caminho exato definido por `spec_file`;
-2. manter o nome da fase exatamente como definido em `automation/ROADMAP.json`;
-3. escrever objetivo, motivacao, pergunta principal, escopo, fora de escopo, contratos, arquitetura, testes, criterios de aceite e limites;
+1. tratar `spec_file` como candidato a criar;
+2. criar a spec no caminho exato definido por `spec_file`, quando a tarefa autorizar;
+3. registrar bloqueio se a spec nao puder ser criada;
 4. nao implementar antes de a spec existir.
+
+Ao criar a spec:
+
+1. manter o nome da fase exatamente como definido em `automation/ROADMAP.json`;
+2. escrever objetivo, motivacao, pergunta principal, escopo, fora de escopo, contratos, arquitetura, testes, criterios de aceite e limites;
+3. nao criar entrada nem alterar a ordem do roadmap.
 
 ## 6. Implementar
 
@@ -1614,10 +1684,12 @@ Se existir:
 
 Se nao existir:
 
-1. criar a spec no caminho exato definido por `diagnosis_spec_file`;
-2. vincular a diagnostico a fase atual;
-3. definir sinais observaveis, modos de falha, comandos, evidencias, troubleshooting, classificacao e decisao final;
-4. nao executar diagnostico antes de a spec existir.
+1. tratar `diagnosis_spec_file` como candidato a criar;
+2. criar a spec no caminho exato definido por `diagnosis_spec_file`, quando a tarefa autorizar;
+3. vincular a diagnostico a fase atual;
+4. definir sinais observaveis, modos de falha, comandos, evidencias, troubleshooting, classificacao e decisao final;
+5. registrar bloqueio se a spec nao puder ser criada;
+6. nao executar diagnostico antes de a spec existir.
 
 ## 8. Executar Diagnostico
 
@@ -1671,7 +1743,8 @@ Definir:
 
 ### 10.3 Ao Passar No Gate
 
-Se `classification` e `decision` forem exatamente os esperados:
+Se `classification` e `decision` forem exatamente
+`advance_only_if.classification` e `advance_only_if.decision` da entrada atual:
 
 1. definir `last_completed_phase` como a fase atual;
 2. definir `last_report` como o report lido;
@@ -1679,9 +1752,9 @@ Se `classification` e `decision` forem exatamente os esperados:
 4. definir `retry_count = 0`;
 5. definir `blocked = false`;
 6. definir `block_reason = ""`;
-7. se houver proxima fase, definir `current_phase` como a proxima fase;
-8. se houver proxima fase, definir `status = "pending"`;
-9. se a fase atual for 24, definir `status = "finished"` e manter `current_phase = 24`.
+7. se houver proxima entrada na ordem de `phases`, definir `current_phase` como o `id` dela;
+8. se houver proxima entrada, definir `status = "pending"`;
+9. se nao houver proxima entrada, manter `current_phase` no `id` concluido e definir `status = "finished"`.
 
 ### 10.4 Ao Bloquear
 
@@ -1706,8 +1779,8 @@ Avancar somente quando todas as condicoes forem verdadeiras:
 4. diagnostico foi executado;
 5. report foi gerado no caminho correto;
 6. report foi lido;
-7. `classification` e exatamente a esperada;
-8. `decision` e exatamente a esperada;
+7. `classification` e exatamente `advance_only_if.classification` da entrada atual;
+8. `decision` e exatamente `advance_only_if.decision` da entrada atual;
 9. `go test ./...` passou;
 10. `go test -race ./...` passou;
 11. OpenAPI passou quando aplicavel;
@@ -1727,112 +1800,21 @@ Ao parar por bloqueio, produzir:
 
 O Cursor nao deve continuar o roadmap enquanto `blocked = true`.
 
-## 13. Gates Por Fase
+## 13. Gate Da Entrada Atual
 
-### Fase 20
+O gate e definido exclusivamente pela entrada atual em
+`automation/ROADMAP.json`:
 
-Fase: `memory-adapter-expansion-and-storage-parity`
+1. localizar a entrada por `current_phase`;
+2. usar `spec_file` como caminho da spec de construcao;
+3. usar `diagnosis_spec_file` como caminho da spec de diagnostico;
+4. usar `report_file` como caminho do report;
+5. comparar a classificacao do report com `advance_only_if.classification`;
+6. comparar a decisao do report com `advance_only_if.decision`.
 
-Spec:
-
-`specs/580-phase-20-memory-adapter-expansion-and-storage-parity.md`
-
-Diagnosis spec:
-
-`specs/581-phase-20-memory-adapter-expansion-and-storage-parity-diagnosis.md`
-
-Report:
-
-`docs/reports/phase-20-memory-adapter-expansion-and-storage-parity-report.md`
-
-Gate:
-
-1. `classification = PASS`
-2. `decision = READY FOR PHASE 21`
-
-### Fase 21
-
-Fase: `agent-invocation-and-conversation-contract-parity`
-
-Spec:
-
-`specs/600-phase-21-agent-invocation-and-conversation-contract-parity.md`
-
-Diagnosis spec:
-
-`specs/601-phase-21-agent-invocation-and-conversation-contract-parity-diagnosis.md`
-
-Report:
-
-`docs/reports/phase-21-agent-invocation-and-conversation-contract-parity-report.md`
-
-Gate:
-
-1. `classification = PASS`
-2. `decision = READY FOR PHASE 22`
-
-### Fase 22
-
-Fase: `workflow-state-persistence-and-resume-parity`
-
-Spec:
-
-`specs/620-phase-22-workflow-state-persistence-and-resume-parity.md`
-
-Diagnosis spec:
-
-`specs/621-phase-22-workflow-state-persistence-and-resume-parity-diagnosis.md`
-
-Report:
-
-`docs/reports/phase-22-workflow-state-persistence-and-resume-parity-report.md`
-
-Gate:
-
-1. `classification = PASS`
-2. `decision = READY FOR PHASE 23`
-
-### Fase 23
-
-Fase: `resumable-streams-and-playground-runtime-parity`
-
-Spec:
-
-`specs/640-phase-23-resumable-streams-and-playground-runtime-parity.md`
-
-Diagnosis spec:
-
-`specs/641-phase-23-resumable-streams-and-playground-runtime-parity-diagnosis.md`
-
-Report:
-
-`docs/reports/phase-23-resumable-streams-and-playground-runtime-parity-report.md`
-
-Gate:
-
-1. `classification = PASS`
-2. `decision = READY FOR PHASE 24`
-
-### Fase 24
-
-Fase: `hosting-integration-and-{{UPSTREAM_NAME_LOWER}}-app-migration-readiness`
-
-Spec:
-
-`specs/660-phase-24-hosting-integration-and-{{UPSTREAM_NAME_LOWER}}-app-migration-readiness.md`
-
-Diagnosis spec:
-
-`specs/661-phase-24-hosting-integration-and-{{UPSTREAM_NAME_LOWER}}-app-migration-readiness-diagnosis.md`
-
-Report:
-
-`docs/reports/phase-24-hosting-integration-and-{{UPSTREAM_NAME_LOWER}}-app-migration-readiness-report.md`
-
-Gate:
-
-1. `classification = PASS`
-2. `decision = READY FOR MIGRATION EXECUTION`
+O report deve corresponder ao `id` e ao `name` da entrada atual. Nenhum caminho,
+nome, classificacao ou decisao pode ser substituido por uma lista hardcoded
+neste runbook.
 
 ## 14. Resposta Final Obrigatoria Do Cursor
 
@@ -1889,8 +1871,8 @@ Regras obrigatorias:
 6. O report da fase e a fonte de verdade para avanco. Nunca avance por narrativa, intencao, resumo otimista, testes verdes isolados ou ausencia aparente de erro.
 
 7. Avance somente quando:
-   - classification == PASS;
-   - decision for exatamente a decisao esperada da fase atual;
+   - classification for exatamente `advance_only_if.classification` da entrada atual;
+   - decision for exatamente `advance_only_if.decision` da entrada atual;
    - go test ./... passar;
    - go test -race ./... passar;
    - OpenAPI estiver valida quando aplicavel;
@@ -1914,7 +1896,7 @@ Regras obrigatorias:
    - rename/naming inconsistente afetando contrato publico;
    - roadmap inconsistente com automation/PHASE_STATE.json.
 
-9. Use no maximo 2 retries corretivos por fase. Depois disso, pare e registre bloqueio em automation/PHASE_STATE.json.
+9. Use no maximo `max_retries_per_phase` retries corretivos da entrada atual. Depois disso, pare e registre bloqueio em automation/PHASE_STATE.json.
 
 10. Ao bloquear, produza:
    - resumo do bloqueio;
@@ -1930,15 +1912,10 @@ Regras obrigatorias:
    - atualize last_decision;
    - zere retry_count;
    - marque blocked como false;
-   - avance current_phase para a proxima fase;
-   - deixe status como pending para a proxima fase.
+   - se houver proxima entrada em phases, avance current_phase para o id dela e deixe status como pending;
+   - se nao houver proxima entrada, mantenha current_phase no id concluido e defina status como finished.
 
-12. Ao concluir a Fase 24 com:
-   - classification = PASS;
-   - decision = READY FOR MIGRATION EXECUTION;
-   atualize automation/PHASE_STATE.json com status = finished e last_completed_phase = 24.
-
-13. Continue automaticamente fase por fase ate concluir todas as fases ou atingir uma stop condition.
+12. Continue automaticamente fase por fase ate concluir todas as entradas do roadmap ou atingir uma stop condition.
 
 Formato obrigatorio da resposta ao final de cada iteracao:
 - objetivo
@@ -1982,11 +1959,11 @@ Nao execute fase futura antes da fase atual passar no gate.
 Se automation/PHASE_STATE.json indicar blocked = true, pare a continuacao normal e use o fluxo de retomada apos bloqueio.
 
 Para a fase atual:
-1. leia a spec de construcao definida em automation/ROADMAP.json;
-2. crie a spec se ela ainda nao existir;
+1. localize spec_file e diagnosis_spec_file na entrada atual de automation/ROADMAP.json;
+2. leia cada spec somente se o arquivo existir; se nao existir, trate o caminho como candidato a criar e nao implemente antes de completar a dual-spec;
 3. implemente ou continue a implementacao somente dentro do escopo da fase atual;
-4. leia a spec de diagnostico definida em automation/ROADMAP.json;
-5. crie a spec de diagnostico se ela ainda nao existir;
+4. crie ou refine ambas as specs somente quando a tarefa autorizar;
+5. registre bloqueio se a dual-spec nao puder ser completada;
 6. execute o diagnostico;
 7. rode go test ./...;
 8. rode go test -race ./...;
@@ -1995,11 +1972,11 @@ Para a fase atual:
 11. leia o report completo;
 12. extraia classification e decision;
 13. atualize automation/PHASE_STATE.json;
-14. avance somente se classification == PASS e decision for exatamente a decisao esperada da fase atual.
+14. avance somente se classification e decision forem exatamente os valores de advance_only_if da entrada atual.
 
 Pare imediatamente se qualquer stop condition em automation/STOP_CONDITIONS.md ocorrer.
 
-Use no maximo 2 retries corretivos por fase. Se os retries forem excedidos, registre bloqueio em automation/PHASE_STATE.json e pare.
+Use no maximo o valor de max_retries_per_phase em automation/ROADMAP.json. Se os retries forem excedidos, registre bloqueio em automation/PHASE_STATE.json e pare.
 
 Formato obrigatorio da resposta:
 - objetivo
@@ -2056,10 +2033,13 @@ Procedimento obrigatorio:
 2. Localize a fase atual em automation/ROADMAP.json.
 
 3. Leia:
-   - spec de construcao da fase atual;
-   - spec de diagnostico da fase atual;
+   - a spec de construcao apontada por `spec_file`, somente se existir;
+   - a spec de diagnostico apontada por `diagnosis_spec_file`, somente se existir;
    - report da fase atual, se existir;
    - stop condition relacionada ao bloqueio.
+
+Se uma das specs estiver ausente, trate o caminho como candidato a criar e
+desbloqueie somente depois de completar a dual-spec conforme a entrada atual.
 
 4. Atue primeiro no desbloqueio da fase atual.
 
@@ -2079,8 +2059,8 @@ Procedimento obrigatorio:
    - extraia classification e decision.
 
 8. So desbloqueie automation/PHASE_STATE.json se:
-   - classification == PASS;
-   - decision for exatamente a decisao esperada da fase atual;
+   - classification for exatamente advance_only_if.classification da entrada atual;
+   - decision for exatamente advance_only_if.decision da entrada atual;
    - go test ./... passou;
    - go test -race ./... passou;
    - OpenAPI passou quando aplicavel;
@@ -2094,7 +2074,7 @@ Procedimento obrigatorio:
    - atualize last_completed_phase;
    - atualize last_report;
    - atualize last_decision;
-   - avance current_phase para a proxima fase, ou marque status = finished se a fase concluida for 24.
+   - avance current_phase para o id da proxima entrada, ou marque status = finished quando nao houver proxima entrada.
 
 10. Se o gate nao for satisfeito:
    - mantenha blocked = true;
@@ -2103,7 +2083,7 @@ Procedimento obrigatorio:
    - preserve o historico relevante em last_report e last_decision;
    - pare.
 
-11. Se retry_count exceder 2:
+11. Se retry_count exceder max_retries_per_phase:
    - mantenha blocked = true;
    - defina status = blocked;
    - registre block_reason como retries corretivos excedidos;
@@ -2318,11 +2298,64 @@ Quando parar por qualquer stop condition, o autopilot deve produzir:
 package {{PROJECT_SLUG}}
 </file>
 
+<file path="docs/README.md">
+# Documentação do {{PROJECT_TITLE}}
+
+Central de navegação da documentação. As fontes normativas são [AGENTS.md](../AGENTS.md) e as specs em [specs/](../specs/); tudo aqui é apoio de descoberta e operação.
+
+## Comece por papel
+
+### Quero pedir uma mudança (autor de solicitação)
+
+1. Estruture o pedido com [ai/task-input-format.md](ai/task-input-format.md).
+2. Entenda o ciclo humano em [feature-request-lifecycle.md](feature-request-lifecycle.md).
+3. Para pedidos que viram trilha SDD, use os modelos de [interactive-sdd-autopilot.md](interactive-sdd-autopilot.md).
+4. Para registrar sem implementar agora, use o backlog: [journeys/03-backlog-e-trilha-sdd.md](journeys/03-backlog-e-trilha-sdd.md).
+
+### Vou implementar (agente ou pessoa)
+
+1. Leia [AGENTS.md](../AGENTS.md) e [skills/00-skill-index/SKILL.md](../skills/00-skill-index/SKILL.md).
+2. Localize a capacidade e seus limites em [ai/capabilities.md](ai/capabilities.md).
+3. Siga o fluxo de execução em [ai/ops-guide.md](ai/ops-guide.md).
+4. Primeira contribuição? [journeys/01-primeira-contribuicao.md](journeys/01-primeira-contribuicao.md).
+
+### Vou revisar (revisor de PR ou de trilha)
+
+1. Checklist humano de aceite em [feature-request-lifecycle.md](feature-request-lifecycle.md).
+2. Contrato mínimo em [ai/ai-contribution-contract.md](ai/ai-contribution-contract.md).
+3. Exceções só valem se registradas em [ai/compliance-exceptions.md](ai/compliance-exceptions.md).
+
+### Cuido de release e decisões (mantenedor)
+
+1. [journeys/04-release-e-decisoes.md](journeys/04-release-e-decisoes.md).
+2. Políticas: [release-versioning-policy.md](release-versioning-policy.md), [release-notes-policy.md](release-notes-policy.md), [release-checklist.md](release-checklist.md).
+3. Decisões não óbvias viram ADR em [decisions/](decisions/).
+
+### Cuido do backlog (triagem)
+
+1. [backlog/Backlog.md](backlog/Backlog.md) é o backlog canônico.
+2. Todo intake passa pela skill [26-backlog-item-intake](../skills/26-backlog-item-intake/SKILL.md).
+
+## Mapa da documentação
+
+- [ai/capabilities.md](ai/capabilities.md): catálogo de capacidades, tipos de verificação e limites.
+- [ai/maturity-inventory.md](ai/maturity-inventory.md): baseline entregue, evidência a produzir e gaps.
+- [ai/ops-guide.md](ai/ops-guide.md): como executar e validar uma tarefa.
+- [journeys/README.md](journeys/README.md): jornadas humanas passo a passo.
+- [ai/spec-lineage.md](ai/spec-lineage.md): como as specs nascem e evoluem.
+- [interactive-sdd-autopilot.md](interactive-sdd-autopilot.md) e [feature-request-lifecycle.md](feature-request-lifecycle.md): trilhas interativas.
+- `reports/` e `plans/`: artefatos de evidência produzidos pelo próprio projeto.
+
+## O que este starter ainda não contém
+
+`pkg/`, `internal/`, `examples/`, API pública e contrato OpenAPI não existem em um projeto recém-gerado: são criados apenas sob spec aprovada. A lista completa de limites está em [ai/capabilities.md](ai/capabilities.md) e [ai/maturity-inventory.md](ai/maturity-inventory.md).
+</file>
+
 <file path="docs/ai/ai-contribution-contract.md">
 # AI Contribution Contract
 
 Este contrato define a baseline operacional expandida para contribuicoes assistidas por AI na `{{PROJECT_SLUG}}`.
-Ele complementa `AGENTS.md` e materializa a `Spec 350`, secoes 5.1, 5.2, 5.5 e 7.1-7.5, preservando a baseline recuperada pela `Spec 348`.
+Ele complementa `AGENTS.md` e e aplicado pelo enforcement real do repositorio: `scripts/check-compliance.sh`, o template de PR e o CI.
 
 ## Regras normativas
 
@@ -2340,6 +2373,7 @@ Ele complementa `AGENTS.md` e materializa a `Spec 350`, secoes 5.1, 5.2, 5.5 e 7
 ## Uso esperado
 
 - Use `docs/ai/task-input-format.md` como formato padrao de entrada.
+- Use `docs/ai/maturity-inventory.md` para localizar a baseline entregue e seus limites, sem tratá-lo como substituto de specs.
 - Use `docs/ai/prompts/` como base de prompt operacional, nao como substituto da leitura das specs.
 - Use `docs/ai/briefs/` para briefs reais e rastreaveis por spec.
 - Use `docs/ai/compliance-exceptions.md` quando alguma exigencia obrigatoria precisar de excecao formal temporaria.
@@ -2461,52 +2495,109 @@ Corrigir um bug ou gap operacional ja diagnosticado, restaurando aderencia a spe
 - gaps restantes ou excecoes formais ainda ativas
 </file>
 
-<file path="docs/ai/briefs/spec-348-baseline-recovery-brief.md">
-# Brief real - Spec 348 baseline recovery
+<file path="docs/ai/capabilities.md">
+# Catálogo de capacidades — {{PROJECT_TITLE}}
 
-## Objetivo
+Este catálogo mapeia as capacidades operacionais do `{{PROJECT_SLUG}}`: o que cada uma entrega, como ativá-la e qual evidência confirma seu uso. Ele é um guia de navegação; as fontes normativas continuam sendo [AGENTS.md](../../AGENTS.md) e as specs em [specs/](../../specs/).
 
-Recuperar a baseline minima de maturidade operacional da trilha de AI development da `{{PROJECT_SLUG}}`, trocando marcadores vazios e gaps abertos por mecanismos versionados, executaveis e auditaveis.
+## Como ler este catálogo
 
-## Specs governantes
+Tipos de verificação:
 
-- `specs/348-ai-operational-maturity-baseline-recovery.md`
-- `specs/349-ai-operational-maturity-baseline-recovery-diagnosis.md`
-- `AGENTS.md`
-- `specs/020-repository-architecture.md`
-- `specs/060-guardrails.md`
+- `automático`: existe comando ou script executável cuja saída confirma a capacidade.
+- `processual`: workflow governado operado por um agente (humano ou AI); a evidência são specs, reports e arquivos de estado versionados — não existe daemon nem runner hospedado.
+- `guia`: orientação normativa (skills, políticas, checklists); nada de código ou infraestrutura foi instalado por ela.
 
-## Escopo desta entrega
+Estados:
 
-- criar assets operacionais minimos em `docs/ai/`
-- versionar regra do Cursor, PR template e config de `pre-commit`
-- adicionar checker simples e auditavel
-- substituir targets vazios no `Makefile`
-- alinhar `.github/workflows/ci.yml` aos targets reais
-- recuperar testes basicos em `pkg/types` e `pkg/guardrail`
-- atualizar apenas os docs centrais estritamente necessarios
+- `baseline entregue`: o artefato existe neste repositório recém-renderizado.
+- `evidência a produzir`: o processo existe, mas este projeto ainda precisa gerar a própria evidência (reports, specs novas, itens de backlog).
+- `fora de escopo`: intencionalmente não entregue; ver a seção final.
 
-## Fora do escopo
+## Capacidades
 
-- suite completa de safety regression
-- policy engine avancado
-- expansao ampla de prompts e briefs
-- reabertura de toda a trilha historica 300-347
+### Governança para agentes
 
-## Evidencias esperadas
+- Tipo: `guia` com enforcement parcial `automático`. Estado: `baseline entregue`.
+- Artefatos: [AGENTS.md](../../AGENTS.md), [.cursor/rules/](../../.cursor/rules/), [.cursor/hooks/](../../.cursor/hooks/) (gofmt pós-edição), [skills/00-skill-index/SKILL.md](../../skills/00-skill-index/SKILL.md).
+- Como ativar: leia `AGENTS.md` e o índice de skills antes de qualquer edição; o roteamento por intenção está na tabela do índice.
+- Evidência: PRs declarando specs lidas e skills aplicadas, conforme o template de PR.
+- Limites: as skills de infraestrutura (02–04, 06–12, 14, 18–19) são guidance herdada para quando o produto exigir aquela stack; nenhuma dependência de Redis, SQS, Postgres, Gin ou gRPC está instalada.
 
-- `make lint`, `make vet` e `make check-compliance` executaveis
-- `.pre-commit-config.yaml` usando hooks locais simples
-- prompts e briefs reutilizaveis, sem texto de enchimento
-- `_test.go` presentes em `pkg/types` e `pkg/guardrail`
-- docs centrais alinhados ao novo estado real do repo
+### Spec Driven Development dual-spec
+
+- Tipo: `processual`. Estado: `baseline entregue` + `evidência a produzir`.
+- Artefatos: [specs/000-project-mission.md](../../specs/000-project-mission.md), [specs/001-non-goals.md](../../specs/001-non-goals.md), [specs/010-feature-matrix.md](../../specs/010-feature-matrix.md), [specs/020-repository-architecture.md](../../specs/020-repository-architecture.md), par [specs/680-phase-0-bootstrap-foundation.md](../../specs/680-phase-0-bootstrap-foundation.md) / [specs/681-phase-0-bootstrap-foundation-diagnosis.md](../../specs/681-phase-0-bootstrap-foundation-diagnosis.md); skills [05](../../skills/05-{{PROJECT_SLUG}}-spec-architect/SKILL.md) e [25](../../skills/25-{{PROJECT_SLUG}}-ultra-rigid-sdd/SKILL.md).
+- Como ativar: toda trilha nova exige spec de construção e spec de diagnóstico antes de implementar; a decisão entre amendar e criar segue a skill 05.
+- Evidência a produzir: as duas specs da trilha, versionadas, mais o report que as valida.
+
+### Autopilot de roadmap (`phase_autopilot`)
+
+- Tipo: `processual`. Estado: `baseline entregue` + `evidência a produzir`.
+- Artefatos: [automation/AUTOPILOT.md](../../automation/AUTOPILOT.md), [automation/RUNBOOK.md](../../automation/RUNBOOK.md), `automation/ROADMAP.json` (fase 0), `automation/PHASE_STATE.json`, [automation/STOP_CONDITIONS.md](../../automation/STOP_CONDITIONS.md).
+- Como ativar: use o prompt mestre da seção 15 do runbook; o agente executa somente a fase indicada por `PHASE_STATE.json`.
+- Evidência a produzir: report da fase no caminho exato declarado em `ROADMAP.json`, com `classification` e `decision` iguais ao gate.
+- Limites: não é um serviço; é uma máquina de estados operada por agente. Testes verdes sem report não autorizam avanço.
+- Jornada: [docs/journeys/02-fase-do-roadmap.md](../journeys/02-fase-do-roadmap.md).
+
+### Autopilot interativo (`interactive_sdd_autopilot`)
+
+- Tipo: `processual`. Estado: `baseline entregue` + `evidência a produzir`.
+- Artefatos: [automation/INTERACTIVE_AUTOPILOT.md](../../automation/INTERACTIVE_AUTOPILOT.md), [automation/INTERACTIVE_RUNBOOK.md](../../automation/INTERACTIVE_RUNBOOK.md), `automation/INTERACTIVE_STATE.json`, [docs/interactive-sdd-autopilot.md](../interactive-sdd-autopilot.md), [docs/feature-request-lifecycle.md](../feature-request-lifecycle.md), skill [23](../../skills/23-{{PROJECT_SLUG}}-sdd-autopilot/SKILL.md).
+- Como ativar: pedido explícito com escopo conhecido e fora de escopo; modelos de pedido em [docs/interactive-sdd-autopilot.md](../interactive-sdd-autopilot.md).
+- Evidência a produzir: intake registrado, dual-spec da trilha, report com `PASS` e `INTERACTIVE_STATE.json` coerente.
+- Limites: aditivo ao roadmap fixo; nunca altera `ROADMAP.json` nem `PHASE_STATE.json`.
+- Jornada: [docs/journeys/03-backlog-e-trilha-sdd.md](../journeys/03-backlog-e-trilha-sdd.md).
+
+### Backlog governado
+
+- Tipo: `processual`. Estado: `baseline entregue` + `evidência a produzir`.
+- Artefatos: [docs/backlog/Backlog.md](../backlog/Backlog.md) (canônico, vazio por design) e skill [26](../../skills/26-backlog-item-intake/SKILL.md) com templates de item, regras de classificação e prompts de autopilot.
+- Como ativar: todo pedido, gap, bug ou ideia passa pela skill 26 antes de virar item `BLG-*`.
+- Evidência a produzir: itens `BLG-*` com classificação, evidência e plano; nenhum item vira implementação sem dual-spec.
+
+### ADR, release e changelog
+
+- Tipo: `processual` com `guia`. Estado: `baseline entregue` + `evidência a produzir`.
+- Artefatos: [docs/decisions/](../decisions/) (ADR seed 0001), [docs/release-versioning-policy.md](../release-versioning-policy.md), [docs/release-notes-policy.md](../release-notes-policy.md), [docs/release-checklist.md](../release-checklist.md), `CHANGELOG.md`, skill [22](../../skills/22-release-versioning-governance/SKILL.md).
+- Como ativar: decisões não óbvias viram ADR; toda recomendação de release preenche o checklist e escolhe um caminho de distribuição.
+- Evidência a produzir: ADRs numerados, changelog atualizado e checklists preenchidos por release.
+- Jornada: [docs/journeys/04-release-e-decisoes.md](../journeys/04-release-e-decisoes.md).
+
+### Qualidade, segurança e compliance
+
+- Tipo: `automático`. Estado: `baseline entregue`.
+- Artefatos: [Makefile](../../Makefile), [scripts/check-compliance.sh](../../scripts/check-compliance.sh), [scripts/check-secrets.sh](../../scripts/check-secrets.sh), [scripts/check-pr-body.sh](../../scripts/check-pr-body.sh), [scripts/check-file-size.sh](../../scripts/check-file-size.sh), [.pre-commit-config.yaml](../../.pre-commit-config.yaml), [.github/workflows/ci.yml](../../.github/workflows/ci.yml), [test/security/](../../test/security/).
+- Como ativar: `make check-compliance`, `make fmt-check`, `make lint`, `make vet`, `make test`, `make race`, `make test-security`, `pre-commit run --all-files`.
+- Evidência: saída dos comandos; o CI executa os mesmos gates em PR.
+- Limites: a baseline de segurança é mínima (suite de presença, secrets scan e govulncheck); não é uma suite ampla de regressão de safety.
+
+### Diagnóstico de maturidade AI-first
+
+- Tipo: `automático` (ferramenta externa `gakit`). Estado: `evidência a produzir`.
+- Como ativar: `gakit diagnose --path . --report-only`.
+- Evidência: relatório com score por pilar e findings.
+- Limites: é sinal de qualidade, não certificação; em um starter recém-gerado, os pilares Hexagonal e OpenAPI apontam ausências por design.
+
+## Fora de escopo
+
+- Capability de produto: API pública, `pkg/`, `internal/`, `examples/` e contrato OpenAPI nascem apenas sob spec aprovada. Até lá, são gaps declarados, não defeitos.
+- Serviços hospedados, control planes, dashboards, runners gerenciados e deploy tooling obrigatório.
+- Stack das skills de infraestrutura: as skills orientam a implementação futura, não instalam dependências.
+
+## Relação com os demais documentos
+
+- [maturity-inventory.md](maturity-inventory.md): mapa de baseline, evidência a produzir e limites — a visão de estado.
+- [ops-guide.md](ops-guide.md): guia de execução de uma tarefa — a visão de fluxo.
+- [docs/journeys/README.md](../journeys/README.md): jornadas humanas passo a passo.
+- [docs/README.md](../README.md): central de navegação por papel.
 </file>
 
 <file path="docs/ai/compliance-exceptions.md">
 # AI Compliance Exceptions
 
 Este arquivo registra excecoes formais, pequenas e auditaveis para compliance, testes e enforcement da trilha de AI development.
-Ele existe para materializar a `Spec 350`, secao 5.5, sem criar bypass silencioso no checker.
+Ele e o unico caminho aceito para excecoes: nenhuma excecao vale sem registro auditavel aqui, e nenhum registro aqui cria bypass silencioso no checker.
 
 ## Estado atual
 
@@ -2526,69 +2617,142 @@ Cada excecao ativa deve listar:
 
 - `id`: `dependabot-pr-body-template`
   - `escopo`: `scripts/check-pr-body.sh` em eventos `pull_request` gerados pelo Dependabot.
-  - `justificativa`: Dependabot gera corpo de PR proprio com changelog e comandos operacionais, sem usar `.github/PULL_REQUEST_TEMPLATE.md`. Exigir headings humanos bloqueia a automacao leve de atualizacao de dependencias aprovada pela `Spec 726`, sem aumentar seguranca ou rastreabilidade do PR automatizado.
+  - `justificativa`: Dependabot gera corpo de PR proprio com changelog e comandos operacionais, sem usar `.github/PULL_REQUEST_TEMPLATE.md`. Exigir headings humanos bloquearia a automacao leve de atualizacao de dependencias sem aumentar seguranca ou rastreabilidade do PR automatizado; os demais checks de CI continuam obrigatorios.
   - `owner`: mantenedores do repositorio `{{PROJECT_SLUG}}`.
   - `criterio de revisao`: revisar quando a politica de PR template mudar, quando Dependabot permitir template customizado compativel ou quando a automacao de dependencia for substituida.
 </file>
 
+<file path="docs/ai/maturity-inventory.md">
+# Inventário de Maturidade AI — {{PROJECT_TITLE}}
+
+Este documento apresenta a baseline AI-first entregue pelo starter de
+`{{PROJECT_SLUG}}`. Ele é um mapa de artefatos versionados, não uma
+certificação de produção e não substitui specs, reports ou decisões humanas.
+
+Ele responde "qual é o estado da baseline". Para "o que cada capacidade faz e
+como ativá-la", use o [catálogo de capacidades](capabilities.md); para o fluxo
+de execução de uma tarefa, use o [guia de operação](ops-guide.md).
+
+## Baseline entregue
+
+### Contrato para agentes e regras de execução
+
+- [AGENTS.md](../../AGENTS.md) define missão, fontes de verdade, workflow
+  obrigatório e formato de resposta.
+- [.cursor/rules/](../../.cursor/rules/) aplica regras modulares para baseline,
+  dual-spec, autopilot, intake e stop conditions.
+- [skills/00-skill-index/SKILL.md](../../skills/00-skill-index/SKILL.md)
+  direciona o agente para a skill adequada antes de editar.
+
+### Spec Driven Development e evidência
+
+- [specs/](../../specs/) contém missão, non-goals, feature matrix, arquitetura
+  e o par inicial de construção/diagnóstico.
+- [skills/05-{{PROJECT_SLUG}}-spec-architect/SKILL.md](../../skills/05-{{PROJECT_SLUG}}-spec-architect/SKILL.md)
+  orienta a decisão entre amendar uma spec ou abrir uma nova trilha dual-spec.
+- [docs/ai/task-input-format.md](task-input-format.md) padroniza a entrada de
+  tarefas; [docs/ai/ai-contribution-contract.md](ai-contribution-contract.md)
+  define as regras mínimas de contribuição assistida por AI.
+
+### Autopilot, backlog e decisões
+
+- [automation/](../../automation/) separa o `phase_autopilot`, orientado pelo
+  roadmap, do `interactive_sdd_autopilot`, orientado por uma solicitação.
+- [docs/backlog/Backlog.md](../backlog/Backlog.md) e
+  [skills/26-backlog-item-intake/SKILL.md](../../skills/26-backlog-item-intake/SKILL.md)
+  fornecem intake, triagem e classificação governada.
+- [docs/decisions/](../decisions/) e as políticas de
+  [release](../release-versioning-policy.md) mantêm decisões, changelog e
+  critérios de entrega rastreáveis.
+
+### Enforcement, qualidade e segurança
+
+- [scripts/check-compliance.sh](../../scripts/check-compliance.sh),
+  [Makefile](../../Makefile), [.github/workflows/ci.yml](../../.github/workflows/ci.yml)
+  e [.pre-commit-config.yaml](../../.pre-commit-config.yaml) materializam
+  checks de formatação, lint, vet, compliance, segurança e testes.
+- [test/security/](../../test/security/) contém a baseline mínima de testes de
+  segurança.
+- [skills/24-agent-readiness-governance/SKILL.md](../../skills/24-agent-readiness-governance/SKILL.md)
+  define como usar readiness como evidência auxiliar, sem substituir o gate da
+  trilha.
+
+## Evidência a produzir
+
+O starter fornece processo e estrutura; cada projeto deve produzir evidências
+da sua própria evolução:
+
+1. registrar specs de construção e diagnóstico para novas trilhas;
+2. gerar reports em `docs/reports/` com classificação e decisão explícitas;
+3. atualizar o backlog, ADRs e changelog quando o escopo exigir;
+4. executar os checks aplicáveis do `Makefile` e do CI;
+5. executar `gakit diagnose --path <projeto>` para avaliar os pilares
+   AI-first do estado atual.
+
+Relatórios de readiness, segurança ou diagnóstico pertencem ao projeto que os
+produziu. Não copie reports de outro repositório como evidência local.
+
+## Gaps e limites
+
+- O starter não implementa uma capability de produto, API pública, provider,
+  serviço hospedado ou control plane.
+- `pkg/`, `internal/`, `examples/` e um contrato OpenAPI devem ser criados
+  apenas quando uma spec aprovada os exigir. Até lá, alguns pilares do
+  diagnóstico podem apontar esses itens como ausentes.
+- A baseline de segurança é mínima; uma suite ampla de regressão de safety,
+  observabilidade de produção e operação hospedada não são declaradas como
+  entregues.
+- O inventário não autoriza alterar código fora de spec nem avançar um
+  autopilot sem report `PASS`.
+
+## Como manter este inventário honesto
+
+Ao alterar esta baseline, atualize este documento somente com links para
+artefatos realmente presentes no repositório renderizado. Descreva capacidades
+futuras como gaps ou trabalho a especificar; nunca como entrega concluída.
+</file>
+
 <file path="docs/ai/ops-guide.md">
-# Guia de operacao AI - {{PROJECT_SLUG}}
+# Guia de operação AI — {{PROJECT_TITLE}}
 
-Base normativa atual:
+Este guia orienta contribuições assistidas por AI no `{{PROJECT_SLUG}}`. Leia
+primeiro [AGENTS.md](../../AGENTS.md); ele e as specs existentes são as fontes
+normativas. Este documento, assim como o
+[catálogo de capacidades](capabilities.md) e o
+[inventário de maturidade](maturity-inventory.md), apenas torna o fluxo mais
+fácil de localizar. Jornadas humanas passo a passo estão em
+[docs/journeys/](../journeys/README.md).
 
-- `AGENTS.md`
-- `specs/010-feature-matrix.md`
-- `specs/348-ai-operational-maturity-baseline-recovery.md`
-- `specs/349-ai-operational-maturity-baseline-recovery-diagnosis.md`
-- `specs/350-ai-operational-maturity-expansion.md`
-- `specs/351-ai-operational-maturity-expansion-diagnosis.md`
-- `specs/352-ai-historical-spec-convergence.md`
-- `specs/353-ai-historical-spec-convergence-diagnosis.md`
-- `specs/342-ai-development-remediation-closure.md`
-- `specs/343-ai-development-remediation-closure-diagnosis.md`
-- `specs/344-ai-development-doc-coherence-cleanup.md`
-- `specs/345-ai-development-doc-coherence-cleanup-diagnosis.md`
-- `specs/346-ai-development-doc-truthfulness-closure.md`
-- `specs/347-ai-development-doc-truthfulness-closure-diagnosis.md`
-- `docs/ai/spec-lineage.md`
+## 1. Iniciar uma tarefa
 
-Este guia descreve apenas os artefatos de AI development realmente versionados no repositorio em 2026-04-09.
+1. Leia `AGENTS.md`, a spec que governa a mudança e
+   `skills/00-skill-index/SKILL.md`.
+2. Use [task-input-format.md](task-input-format.md) para estruturar o pedido.
+3. Para uma nova trilha, decida entre amendar uma spec e criar o par
+   construção/diagnóstico com a skill de spec architect.
+4. Use os prompts em [prompts/](prompts/) e briefs em [briefs/](briefs/) como
+   apoio operacional, nunca como substitutos de uma spec.
+5. Declare objetivo, specs lidas, skills aplicadas, arquivos alterados,
+   comandos, testes e gaps restantes ao concluir.
 
-## 1. Iniciar tarefa com Codex ou Cursor
+## 2. Artefatos disponíveis
 
-1. Ler `AGENTS.md` e a spec governante da mudanca.
-2. Ler `specs/010-feature-matrix.md` quando a tarefa tocar status, cobertura ou paridade.
-3. Ler `skills/00-skill-index/SKILL.md` e as skills aplicaveis ao escopo.
-4. Usar `docs/ai/task-input-format.md` como formato padrao de entrada.
-5. Reutilizar os prompts oficiais de `docs/ai/prompts/` e os briefs versionados em `docs/ai/briefs/` quando fizer sentido.
-6. Exigir que a resposta do agente liste objetivo, specs lidas, skills aplicadas, arquivos alterados, comandos executados, testes executados e gaps restantes.
+- [capabilities.md](capabilities.md) cataloga cada capacidade, como ativá-la,
+  a evidência esperada e os limites.
+- [ai-contribution-contract.md](ai-contribution-contract.md) define o contrato
+  mínimo de contribuição assistida por AI.
+- [compliance-exceptions.md](compliance-exceptions.md) é o único caminho para
+  exceções auditáveis.
+- [spec-lineage.md](spec-lineage.md) explica como tratar as specs iniciais e
+  futuras sem inventar histórico.
+- [maturity-inventory.md](maturity-inventory.md) mapeia a baseline entregue e
+  os limites do starter.
+- `.cursor/rules/`, `skills/`, `automation/`, `docs/backlog/`,
+  `docs/decisions/` e `docs/reports/` compõem a infraestrutura operacional.
 
-Estado atual de assets operacionais:
+## 3. Validar a entrega
 
-- existe `docs/ai/ai-contribution-contract.md`
-- existe `docs/ai/task-input-format.md`
-- existe `docs/ai/compliance-exceptions.md` com caminho formal para excecoes auditaveis
-- existe `docs/ai/prompts/` com prompts reais para implementacao, review, diagnostico e remediation/bugfix
-- existe `docs/ai/briefs/` com briefs reais para implementacao, diagnostico e remediation/bugfix
-- existe `.cursor/rules/{{PROJECT_SLUG}}.mdc`
-- existe `test/security/` com baseline minima real baseada em guardrails publicos
-- existe `make test-security` e o CI o executa explicitamente
-
-Esta baseline continua enxuta e repo-native. Ela nao substitui specs, mas evita remontar o fluxo operacional do zero a cada tarefa e materializa enforcement semantico leve.
-
-## 2. Validar a entrega
-
-Campos minimos esperados na resposta do agente:
-
-- [ ] objetivo
-- [ ] specs lidas
-- [ ] skills aplicadas
-- [ ] arquivos alterados
-- [ ] comandos executados
-- [ ] testes executados
-- [ ] gaps restantes
-
-Comandos realmente disponiveis hoje:
+Quando aplicáveis ao escopo, execute:
 
 - `make fmt-check`
 - `make lint`
@@ -2600,65 +2764,21 @@ Comandos realmente disponiveis hoje:
 - `make coverage`
 - `pre-commit run --all-files`
 
-Gaps operacionais atuais:
+O report da trilha, não apenas testes verdes, decide o avanço de um autopilot.
+Use `gakit diagnose --path <projeto>` para obter sinais adicionais sobre a
+baseline AI-first e seus gaps.
 
-- a baseline de AI continua minima; nao existe suite ampla de safety regression
-- specs `310/311` e `330/331` foram formalmente superadas por `348/349` e `350/351` respectivamente (decisao sob Spec 352; ver `docs/ai/spec-lineage.md`)
+## 4. Limites conhecidos
 
-## 3. Estado documental da trilha AI
-
-| Item | Estado atual | Artefatos reais |
-| --- | --- | --- |
-| Enforcement baseline | baseline minima recuperada e expandida com checker semantico leve, caminho formal de excecoes, `test-security` e CI real; specs `310/311` formalmente superadas por `348/349` (Spec 352) | `specs/348-ai-operational-maturity-baseline-recovery.md`, `specs/349-ai-operational-maturity-baseline-recovery-diagnosis.md`, `specs/350-ai-operational-maturity-expansion.md`, `specs/351-ai-operational-maturity-expansion-diagnosis.md`, `docs/reports/ai-enforcement-baseline-report.md`, `scripts/check-compliance.sh`, `docs/ai/spec-lineage.md` |
-| Remediation closure | trilha historica `342/343` continua nao consolidada; gap normativo de `310/311` resolvido pela convergencia (Spec 352), mas D5 (safety) permanece FAIL | `specs/342-ai-development-remediation-closure.md`, `specs/343-ai-development-remediation-closure-diagnosis.md`, `docs/reports/ai-remediation-closure-report.md` |
-| Doc coherence cleanup | specs existem | `specs/344-ai-development-doc-coherence-cleanup.md`, `specs/345-ai-development-doc-coherence-cleanup-diagnosis.md` |
-| Truthfulness closure | specs existem; esta e a trilha usada para corrigir os docs centrais | `specs/346-ai-development-doc-truthfulness-closure.md`, `specs/347-ai-development-doc-truthfulness-closure-diagnosis.md` |
-| Governance baseline | baseline expandida agora versionada em docs, prompts, briefs, excecoes formais e rule set do Cursor | `docs/ai/ai-contribution-contract.md`, `docs/ai/task-input-format.md`, `docs/ai/compliance-exceptions.md`, `docs/ai/prompts/`, `docs/ai/briefs/`, `.cursor/rules/{{PROJECT_SLUG}}.mdc` |
-| Operabilidade Codex/Cursor | baseline operacional minima expandida disponivel | `docs/ai/task-input-format.md`, `docs/ai/prompts/`, `docs/ai/briefs/`, `.cursor/rules/{{PROJECT_SLUG}}.mdc` |
-| Safety regression baseline | baseline minima real presente; specs `330/331` formalmente superadas por `350/351` (Spec 352); suite dedicada ampla continua ausente | `specs/350-ai-operational-maturity-expansion.md`, `specs/351-ai-operational-maturity-expansion-diagnosis.md`, `test/security/`, `docs/ai/spec-lineage.md` |
-| Learning loop | gap documental | specs `340/341` e relatorio dedicado nao encontrados |
-
-## 4. Onde encontrar o que
-
-| Artefato real | Caminho |
-| --- | --- |
-| Workflow normativo | `AGENTS.md` |
-| Indice de skills | `skills/00-skill-index/SKILL.md` |
-| Feature matrix | `specs/010-feature-matrix.md` |
-| Specs do repositorio | `specs/` |
-| Contrato de contribuicao AI | `docs/ai/ai-contribution-contract.md` |
-| Formato padrao de entrada | `docs/ai/task-input-format.md` |
-| Excecoes formais de compliance | `docs/ai/compliance-exceptions.md` |
-| Prompts operacionais | `docs/ai/prompts/` |
-| Briefs versionados | `docs/ai/briefs/` |
-| Guia operacional AI atual | `docs/ai/ops-guide.md` |
-| Relatorio de enforcement AI | `docs/reports/ai-enforcement-baseline-report.md` |
-| Relatorio de remediation closure AI | `docs/reports/ai-remediation-closure-report.md` |
-| Linhagem normativa da trilha AI | `docs/ai/spec-lineage.md` |
-| Workflow de CI existente | `.github/workflows/ci.yml` |
-| Comandos versionados | `Makefile` |
-| Hooks locais | `.pre-commit-config.yaml` |
-| Checker de compliance | `scripts/check-compliance.sh` |
-| Baseline minima de safety | `test/security/` |
-| Fluxo de contribuicao | `CONTRIBUTING.md` |
-
-## 5. Gaps explicitos desta trilha
-
-Os itens abaixo ja foram citados historicamente em docs da trilha AI, mas nao existem no estado atual do repositorio:
-
-- specs `300`, `301`, `320`, `321`, `340` e `341`
-- `docs/ai/sensitive-changes-checklist.md`
-- `docs/ai/threat-model.md`
-- `docs/ai/gap-tracker.md`
-- `docs/ai/anti-patterns.md`
-- `docs/ai/postmortem-template.md`
-
-Esses itens devem ser tratados como gaps documentais ou operacionais, nunca como capacidade implementada.
-
-Specs formalmente superadas (nao sao mais gaps; ver `docs/ai/spec-lineage.md`):
-
-- `310/311` — superadas por `348/349` (decisao sob Spec 352)
-- `330/331` — superadas por `350/351` (decisao sob Spec 352)
+- O starter fornece uma baseline mínima de safety; uma suite ampla de
+  regressão, operação hospedada e observabilidade de produção não estão
+  declaradas como entregues.
+- Specs, reports e capacidades de produto devem nascer no projeto quando uma
+  necessidade aprovada os exigir. Paths ausentes são gaps a especificar, não
+  evidência de trabalho já concluído.
+- O projeto recém-gerado ainda não contém uma API, OpenAPI, `pkg/`,
+  `internal/` ou `examples`; crie essas superfícies somente sob uma spec
+  aprovada.
 </file>
 
 <file path="docs/ai/prompts/audit-or-diagnose.md">
@@ -2837,122 +2957,58 @@ Formato de saida:
 </file>
 
 <file path="docs/ai/spec-lineage.md">
-# AI Development Spec Lineage
+# Linhagem de Specs AI — {{PROJECT_TITLE}}
 
-Spec governante: `specs/352-ai-historical-spec-convergence.md`
-Data da decisao: 2026-04-09
+Este starter não reproduz a história de specs de outro repositório. A
+linhagem começa nos arquivos presentes em `specs/` e cresce junto com o
+projeto. Nunca trate o número, o nome ou o report de uma spec ausente como
+evidência de implementação.
 
----
+## Specs iniciais
 
-## 1. Decisao de convergencia
+- `specs/000-project-mission.md` define a missão e as regras globais.
+- `specs/001-non-goals.md` define limites explícitos de escopo.
+- `specs/010-feature-matrix.md` registra cobertura, prioridade, risco e
+  paridade quando aplicável.
+- `specs/020-repository-architecture.md` define fronteiras de arquitetura.
+- `specs/680-phase-0-bootstrap-foundation.md` e
+  `specs/681-phase-0-bootstrap-foundation-diagnosis.md` formam o par inicial
+  de construção e diagnóstico do roadmap.
 
-**Estrategia adotada: substituicao formal (Estrategia A da Spec 352, secao 5).**
+## Como criar a próxima trilha
 
-As specs historicamente planejadas `310/311` e `330/331` nunca foram criadas como arquivos no repositorio e nunca governaram nenhuma implementacao real. A funcionalidade prevista para essas trilhas foi absorvida por specs posteriores que de fato orientaram a implementacao.
+1. Leia [AGENTS.md](../../AGENTS.md) e a skill de spec architect.
+2. Decida se a mudança pertence a uma spec existente ou exige nova trilha.
+3. Para uma trilha nova, crie uma spec de construção e outra de diagnóstico
+   antes de implementar comportamento.
+4. Registre os paths no estado e no report que governam a trilha.
+5. Atualize a feature matrix, backlog ou ADR quando a mudança alterar esses
+   contratos.
 
-A partir desta decisao:
+Specs futuras são candidatas a criar e só se tornam normativas após existirem
+como arquivos versionados.
 
-- `310/311` sao formalmente superadas por `348/349`
-- `330/331` sao formalmente superadas por `350/351`
-- Nenhum arquivo de backfill retroativo sera criado para 310, 311, 330 ou 331
-- A rastreabilidade entre trilha planejada e trilha real e garantida por este documento
+## Evidência e decisões
 
-Esta decisao nao inventa historico de execucao. As specs 310/311 e 330/331 nunca existiram como arquivos e nunca governaram trabalho passado.
+O enforcement real está nos seguintes artefatos:
 
----
+- `scripts/check-compliance.sh`
+- `.pre-commit-config.yaml`
+- `.github/workflows/ci.yml`
+- `.github/PULL_REQUEST_TEMPLATE.md`
+- `docs/ai/ai-contribution-contract.md`
+- `docs/ai/compliance-exceptions.md`
+- `test/security/`
 
-## 2. Tabela de rastreabilidade
-
-| Spec planejada (ausente) | Funcionalidade prevista | Superada por (existente) | Evidencia de absorcao |
-| --- | --- | --- | --- |
-| 310 - AI development enforcement baseline | checker de compliance, PR template, linter real, pre-commit, targets reais de CI | `specs/348-ai-operational-maturity-baseline-recovery.md` (gaps G1-G4) | `scripts/check-compliance.sh`, `Makefile`, `.github/workflows/ci.yml`, `.github/PULL_REQUEST_TEMPLATE.md`, `.pre-commit-config.yaml` |
-| 311 - AI development enforcement diagnosis | auditoria da baseline de enforcement | `specs/349-ai-operational-maturity-baseline-recovery-diagnosis.md` (dimensoes D1-D6) | `docs/reports/ai-enforcement-baseline-report.md` |
-| 330 - AI safety regression baseline | baseline minima de testes de seguranca, input malicioso, output validation, fail-closed | `specs/350-ai-operational-maturity-expansion.md` (gap G4, secao 5.4) | `test/security/guardrail_security_test.go` |
-| 331 - AI safety regression diagnosis | auditoria da baseline de safety | `specs/351-ai-operational-maturity-expansion-diagnosis.md` (dimensao D4) | `docs/reports/ai-expansion-diagnosis-report.md` |
-
----
-
-## 3. Classificacao das specs da trilha AI (300+)
-
-### Specs governantes (existem e governam implementacao real)
-
-| Spec | Nome | Par diagnostico | Status |
-| --- | --- | --- | --- |
-| 342 | AI development remediation closure | 343 | existente; D1 e D5 historicamente FAIL; gap normativo de D1 resolvido por esta convergencia |
-| 344 | AI development doc coherence cleanup | 345 | existente |
-| 346 | AI development doc truthfulness closure | 347 | existente |
-| 348 | AI operational maturity baseline recovery | 349 | existente; superou 310/311 |
-| 350 | AI operational maturity expansion | 351 | existente; superou 330/331 |
-| 352 | AI historical spec convergence | 353 | existente; esta decisao |
-
-### Specs formalmente superadas (nunca existiram como arquivos)
-
-| Spec planejada | Superada por | Justificativa |
-| --- | --- | --- |
-| 310 | 348 | funcionalidade absorvida; nenhuma implementacao foi guiada por 310 |
-| 311 | 349 | funcionalidade absorvida; nenhuma auditoria foi guiada por 311 |
-| 330 | 350 | funcionalidade absorvida; nenhuma implementacao foi guiada por 330 |
-| 331 | 351 | funcionalidade absorvida; nenhuma auditoria foi guiada por 331 |
-
-### Specs historicas ausentes (sem substituicao formal nesta convergencia)
-
-| Spec planejada | Funcionalidade prevista | Estado |
-| --- | --- | --- |
-| 300/301 | (referenciadas historicamente sem descricao precisa) | ausentes; sem substituicao formal; tratadas como gap documental |
-| 320/321 | (referenciadas historicamente sem descricao precisa) | ausentes; sem substituicao formal; tratadas como gap documental |
-| 340/341 | learning loop | ausentes; sem substituicao formal; tratadas como gap documental |
-
----
-
-## 4. Impacto na Spec 342
-
-A `Spec 342` referencia `specs/310` e `specs/311` como dependencias em sua secao 5.1 (Gap G1) e no prompt de execucao (secao 10). A `Spec 342` tambem referencia `specs/330` e `specs/331` no prompt de execucao.
-
-A partir desta convergencia:
-
-- Toda referencia a 310/311 na Spec 342 deve ser lida como apontando para 348/349
-- Toda referencia a 330/331 na Spec 342 deve ser lida como apontando para 350/351
-- O FAIL em D1 do relatorio de remediation closure (`docs/reports/ai-remediation-closure-report.md`) refletia o gap normativo de 310/311; esse gap normativo esta agora resolvido pela substituicao formal
-- D5 do relatorio de remediation closure (safety gap) permanece inalterado por esta convergencia
-
----
-
-## 5. Guia para contribuidores futuros
-
-### O que ler para entender a trilha AI
-
-1. `AGENTS.md` — workflow normativo e regras globais
-2. `docs/ai/ops-guide.md` — guia operacional com estado atual de assets
-3. Este documento (`docs/ai/spec-lineage.md`) — linhagem e rastreabilidade historica
-4. As specs governantes listadas na secao 3 deste documento
-
-### Como interpretar specs da trilha AI
-
-- Se a spec existe como arquivo em `specs/`, ela e governante ou historica conforme a secao 3 deste documento
-- Se a spec nao existe como arquivo e esta listada como "formalmente superada", sua funcionalidade foi absorvida pela spec indicada na tabela de rastreabilidade
-- Se a spec nao existe como arquivo e esta listada como "historica ausente", ela e um gap documental reconhecido e nao governou nenhuma implementacao
-- Nunca assumir que uma spec ausente governou implementacao real
-
-### Onde esta o enforcement real
-
-A baseline de enforcement da trilha AI esta materializada em:
-
-- `scripts/check-compliance.sh` — checker semantico
-- `.pre-commit-config.yaml` — hooks locais
-- `.github/workflows/ci.yml` — pipeline de CI
-- `.github/PULL_REQUEST_TEMPLATE.md` — template de PR
-- `docs/ai/ai-contribution-contract.md` — contrato de contribuicao
-- `docs/ai/compliance-exceptions.md` — caminho formal de excecoes
-- `test/security/` — baseline minima de safety
-
-Esses artefatos foram criados sob as specs 348 e 350, nao sob 310 ou 330.
+Use `docs/reports/` para reports produzidos pelo próprio projeto e
+`docs/decisions/` para decisões de arquitetura ou governança não óbvias.
 </file>
 
 <file path="docs/ai/task-input-format.md">
 # Task Input Format
 
 Use este formato quando abrir uma tarefa para Codex, Cursor ou outro agente.
-Ele complementa `AGENTS.md`, reduz drift entre prompt, spec e resultado entregue, e materializa a `Spec 350`, secoes 5.1 e 5.2.
+Ele complementa `AGENTS.md` e reduz drift entre prompt, spec e resultado entregue.
 
 ## Campos obrigatorios
 
@@ -3200,19 +3256,15 @@ Excecao: ADRs em `Proposed` podem ser editados ate aprovacao. Apos `Accepted`, s
 
 ## Objetivo
 
-Este documento descreve o ciclo humano de uma solicitacao interativa no `{{PROJECT_SLUG}}`.
+Este documento descreve como uma pessoa inicia, acompanha, revisa, bloqueia, retoma e aceita uma solicitacao interativa no `{{PROJECT_SLUG}}`.
 
-Ele complementa `docs/interactive-sdd-autopilot.md`, `automation/INTERACTIVE_AUTOPILOT.md`, `automation/INTERACTIVE_RUNBOOK.md`, `automation/STOP_CONDITIONS.md` e `skills/23-{{PROJECT_SLUG}}-sdd-autopilot/SKILL.md`.
+Ele e o guia do lado humano. O guia de execucao do modo interativo, incluindo a maquina de estados, o gate e os campos de `automation/INTERACTIVE_STATE.json`, esta em `docs/interactive-sdd-autopilot.md`. As fontes normativas sao `AGENTS.md`, `automation/INTERACTIVE_AUTOPILOT.md`, `automation/INTERACTIVE_RUNBOOK.md`, `automation/STOP_CONDITIONS.md` e `skills/23-{{PROJECT_SLUG}}-sdd-autopilot/SKILL.md`.
 
-O ciclo abaixo descreve como uma pessoa deve iniciar, acompanhar, revisar, bloquear, retomar e aceitar uma trilha de `interactive_sdd_autopilot`.
+Os exemplos deste documento sao ilustrativos: eles mostram o formato esperado e nao declaram a existencia de specs, reports ou trilhas historicas neste repositorio.
 
-## 1. Pedido Inicial
+## 1. Iniciar uma solicitacao
 
-O usuario descreve uma feature, evolucao, bug, refatoracao, investigacao ou mudanca documental.
-
-O pedido inicial nao e uma spec aprovada. Ele e a entrada para intake.
-
-Pedido recomendado:
+O pedido inicial e intake, nao spec aprovada. Descreva a mudanca observavel, o escopo conhecido e os limites:
 
 ```text
 Execute o interactive_sdd_autopilot do {{PROJECT_SLUG}} para esta solicitacao:
@@ -3225,257 +3277,90 @@ Fora do escopo:
 - <limites que nao devem ser cruzados>
 ```
 
-Se o usuario nao informar escopo ou criterios suficientes, o Cursor deve normalizar o que existe e perguntar pelo menor conjunto util de informacoes.
+Se voce nao souber detalhar escopo ou criterios, envie o que existe: o agente deve normalizar o pedido e perguntar pelo menor conjunto util de informacoes.
 
-## 2. Intake
-
-Durante o intake, o Cursor deve registrar:
-
-1. texto original;
-2. tipo do pedido;
-3. objetivo;
-4. escopo conhecido;
-5. fora do escopo quando identificavel;
-6. incertezas materiais;
-7. specs candidatas;
-8. skills candidatas;
-9. decisao inicial.
-
-Exemplo de intake versionado: `docs/reports/phase-26-interactive-sdd-autopilot-smoke-evidence.md`.
-
-No smoke da Fase 26, o pedido foi classificado como `docs`, com objetivo de consolidar exemplos humanos de uso do modo interativo. O escopo ficou restrito a docs, reports e `automation/INTERACTIVE_STATE.json`.
-
-## 3. Refinamento
-
-O Cursor deve perguntar antes de editar quando faltarem informacoes materiais sobre:
-
-1. comportamento observavel;
-2. escopo;
-3. fora de escopo;
-4. contrato publico;
-5. impacto arquitetural;
-6. estrategia de testes;
-7. criterio diagnostico;
-8. criterio de aceite;
-9. decisao humana de arquitetura.
-
-As perguntas devem ser objetivas e poucas por vez.
-
-Pedido que deve perguntar ou bloquear:
+Pedido que deve gerar perguntas ou bloqueio, nunca implementacao direta:
 
 ```text
 Execute o interactive_sdd_autopilot do {{PROJECT_SLUG}} para esta solicitacao:
 Melhore o autopilot para ser mais seguro.
 ```
 
-Esse pedido nao define objetivo observavel, escopo, diagnostico, testes nem criterio de aceite. O Cursor nao deve implementar baseado nessa frase.
+Esse pedido nao define objetivo observavel, escopo, diagnostico, testes nem criterio de aceite.
 
-## 4. Decisao De Spec
+## 2. O que conferir no intake
 
-O Cursor deve decidir entre `amend` e nova trilha dual-spec.
+Depois do intake, uma pessoa deve conseguir ler na resposta do agente:
 
-Use `amend` quando a solicitacao pertence a um dominio ja governado e a spec existente consegue receber a regra, criterio ou exemplo sem misturar responsabilidades. O smoke da Fase 26 usou esse caminho porque a mudanca era onboarding humano exigido por `Spec 700` e diagnosticado por `Spec 701`.
+1. o texto original preservado;
+2. o tipo do pedido (`feature`, `evolution`, `bug`, `refactor`, `docs` ou `investigation`);
+3. objetivo e escopo conhecido;
+4. incertezas materiais e perguntas abertas;
+5. specs e skills candidatas;
+6. a decisao inicial: perguntar, amendar spec existente ou preparar nova trilha dual-spec.
 
-Abra nova trilha dual-spec quando a solicitacao cria novo bounded context, novo contrato principal, diagnostico separado ou impacto transversal que merece governanca propria.
+Se o agente pergunta, responda apenas as pendencias materiais. Perguntas sobre comportamento observavel, contrato publico, estrategia de testes e criterio de aceite bloqueiam a trilha ate serem respondidas.
 
-Uma nova trilha so pode seguir quando tiver:
+## 3. O que conferir na decisao de spec
 
-1. spec de construcao;
-2. spec de diagnostico.
+A decisao entre `amend` e nova trilha dual-spec segue `skills/05-{{PROJECT_SLUG}}-spec-architect/SKILL.md`.
 
-Se a decisao de spec estiver ausente, a trilha deve bloquear antes de implementacao.
+Para `amend`, confira se o agente registrou as specs existentes lidas, as secoes governantes e o motivo para nao abrir nova trilha.
 
-## 5. Specs Governantes
-
-Antes de implementar, uma pessoa deve conseguir apontar quais specs governam a mudanca.
-
-Para uma trilha `amend`, confira:
-
-1. specs existentes lidas;
-2. secoes governantes;
-3. motivo para nao abrir nova dual-spec;
-4. lacunas registradas, se houver.
-
-Para uma nova trilha dual-spec, confira:
+Para nova trilha, confira se existem, antes de qualquer implementacao:
 
 1. spec de construcao com objetivo, escopo, fora de escopo, comportamento observavel, testes e criterios de aceite;
-2. spec de diagnostico com sinais, modos de falha, comandos, evidencias, classificacao, decisao e report esperado;
-3. aderencia entre as duas specs.
+2. spec de diagnostico com sinais observaveis, modos de falha, comandos, evidencias, classificacao e decisao esperada.
 
-## 6. Implementacao Governada
+Decisao de spec ausente e motivo de bloqueio, nao de tolerancia.
 
-A implementacao so comeca quando as specs governantes cobrem a mudanca.
+## 4. O que conferir durante a implementacao
 
-Durante a implementacao, o Cursor deve:
+1. Somente arquivos no escopo aprovado foram editados.
+2. `pkg/` e `internal/` ficaram intactos quando a trilha for so de governanca, docs ou onboarding.
+3. `automation/ROADMAP.json` e `automation/PHASE_STATE.json` nao foram usados para representar a trilha interativa.
+4. Testes acompanharam qualquer mudanca de comportamento.
+5. Gaps que nao puderam ser fechados foram registrados, nao omitidos.
 
-1. editar apenas arquivos no escopo;
-2. preservar `pkg/` e `internal/` quando a trilha for somente governanca, docs ou onboarding;
-3. nao alterar `automation/ROADMAP.json` nem `automation/PHASE_STATE.json` para representar trilha interativa;
-4. adicionar ou atualizar testes quando comportamento mudar;
-5. atualizar docs quando comportamento operacional ou publico mudar;
-6. registrar gaps que nao puderem ser fechados.
+## 5. O que conferir no report e no gate
 
-No smoke da Fase 26, a implementacao governada foi documental: docs e reports foram atualizados; nenhuma capability de produto foi criada.
+O report da etapa e a fonte de verdade para avanco. Classificacoes permitidas: `PASS`, `PARTIAL`, `FAIL` e `BLOCKED`. O agente so avanca com `classification = PASS` e decisao final autorizando.
 
-## 7. Diagnostico
+Revise:
 
-O diagnostico deve seguir a spec diagnostica da trilha.
+1. o report existe no caminho registrado em `current_request.report_file`;
+2. a etapa do report corresponde a `current_request.current_step`;
+3. `classification` e `decision` existem e sao explicitas;
+4. comandos e testes obrigatorios foram executados ou justificados pela spec de diagnostico;
+5. nenhuma stop condition permanece ativa.
 
-Ele deve registrar:
+Para mudanca documental, o diagnostico tipico inclui validacao JSON dos estados alterados, `go test ./...`, `go test -race ./...` e lints dos arquivos alterados; `make fmt` e OpenAPI podem ser justificados como nao aplicaveis quando nenhum arquivo Go ou HTTP muda.
 
-1. comandos executados;
-2. testes executados;
-3. evidencias coletadas;
-4. skips justificados;
-5. gaps restantes;
-6. classificacao;
-7. decisao final.
+## 6. Bloqueio e retomada
 
-Para mudanca documental, o diagnostico pode incluir validacao JSON, `go test ./...`, `go test -race ./...`, lints dos arquivos alterados e revisao de escopo proibido. `make fmt` e OpenAPI podem ser justificados como nao aplicaveis quando nenhum arquivo Go ou HTTP/OpenAPI mudar.
+Um bloqueio legitimo aparece em tres lugares: em `automation/INTERACTIVE_STATE.json` (`blocked = true` com `block_reason` objetivo), no report ou evidencia da trilha, e na resposta final do agente com a acao humana recomendada.
 
-Quando a solicitacao usar `@kodus/agent-readiness`, aplique `skills/24-agent-readiness-governance/SKILL.md`. O report deve ficar em `docs/reports/agent-readiness/`, cada achado deve ser classificado para o contexto do `{{PROJECT_SLUG}}`, e o resultado deve ser tratado como evidencia auxiliar. O score bruto nao autoriza avanco nem bloqueio sem o report diagnostico da trilha.
+Na retomada, exija que o agente parta dos artefatos versionados — estado, specs da trilha e report do bloqueio — e corrija somente a causa registrada, preservando `retry_count` e historico. Retomada baseada na memoria da conversa nao e aceitavel. O limite e de `2` retries corretivos por etapa; alem disso, a trilha para e espera decisao humana.
 
-## 8. Report E Gate
+Nunca aceite como "solucao" de bloqueio: alterar gate, criterio de aceite, `ROADMAP.json` ou `PHASE_STATE.json`.
 
-O report e a fonte de verdade para avanco.
+## 7. Checklist humano antes de aceitar a conclusao
 
-Classificacoes permitidas:
+1. Pedido inicial tratado como intake, nao como spec aprovada.
+2. Decisao entre `amend` e nova trilha dual-spec registrada.
+3. Spec de construcao e spec de diagnostico lidas e cobrindo a mudanca.
+4. Arquivos alterados dentro do escopo aprovado.
+5. Comandos e testes executados ou justificados.
+6. Report com `classification = PASS` e decisao de conclusao.
+7. `automation/INTERACTIVE_STATE.json` coerente com o report (`completed` exige `PASS`).
+8. Nenhuma mudanca indevida em `automation/ROADMAP.json` ou `automation/PHASE_STATE.json`.
+9. Nenhuma capability de produto criada fora de spec.
+10. Bloqueios e retomadas preservados no historico quando existirem.
+11. Gaps restantes ausentes ou explicitamente registrados.
 
-1. `PASS`;
-2. `PARTIAL`;
-3. `FAIL`;
-4. `BLOCKED`.
+## 8. Artefatos para revisar em PR
 
-O Cursor so pode avancar quando o report declarar `PASS` e a decisao final autorizar a proxima etapa ou a conclusao.
-
-Exemplo de report de trilha: `docs/reports/phase-26-interactive-sdd-autopilot-smoke-report.md`.
-
-Uma pessoa deve conferir:
-
-1. se o report corresponde ao `current_request.report_file`;
-2. se a etapa do report corresponde a `current_request.current_step`;
-3. se `classification` e `decision` existem;
-4. se a decisao autoriza avanco, retry ou conclusao;
-5. se os testes obrigatorios foram executados ou justificados;
-6. se nenhuma stop condition permanece ativa.
-
-## 9. Estado Interativo
-
-`automation/INTERACTIVE_STATE.json` e o estado da trilha interativa.
-
-Ele deve registrar:
-
-1. `mode = "interactive_sdd_autopilot"`;
-2. `status`;
-3. `blocked` e `block_reason`;
-4. request id;
-5. tipo do pedido;
-6. pedido original;
-7. etapa atual;
-8. specs governantes;
-9. spec de construcao;
-10. spec de diagnostico;
-11. report atual;
-12. retry count;
-13. classificacao e decisao mais recentes;
-14. criterios de conclusao;
-15. historico relevante quando houver smoke, bloqueio ou retomada.
-
-Durante revisao humana, `INTERACTIVE_STATE.json` deve bater com o report. Se o estado disser `completed`, o report deve declarar `PASS` e decisao de conclusao. Se o estado disser `blocked`, deve haver motivo objetivo e acao humana recomendada.
-
-## 10. Bloqueio
-
-A trilha deve bloquear quando:
-
-1. faltar spec obrigatoria;
-2. faltar resposta humana para requisito material;
-3. a decisao entre `amend` e nova trilha dual-spec estiver ausente;
-4. teste obrigatorio falhar;
-5. diagnostico obrigatorio nao tiver sido executado;
-6. report estiver ausente ou ambiguo;
-7. classificacao for `PARTIAL`, `FAIL` ou `BLOCKED`;
-8. a correcao exigir escopo proibido;
-9. a correcao exigiria alterar o roadmap fixo para contornar gate;
-10. houver decisao humana de arquitetura pendente.
-
-Ao bloquear, o Cursor deve registrar motivo objetivo e acao humana recomendada em `automation/INTERACTIVE_STATE.json`, no report ou na evidencia da trilha, e na resposta final.
-
-No smoke da Fase 26, o bloqueio controlado aconteceu em `report_review` porque o report da etapa ainda estava ausente ou sem `classification` e `decision`.
-
-## 11. Retomada
-
-A retomada deve partir de artefatos existentes, nao de narrativa da conversa:
-
-1. ler `automation/INTERACTIVE_STATE.json`;
-2. ler a spec de construcao;
-3. ler a spec de diagnostico;
-4. ler report ou evidencia do bloqueio;
-5. corrigir somente a causa do bloqueio;
-6. preservar historico e retry count;
-7. reexecutar diagnostico;
-8. gerar ou atualizar report;
-9. avancar apenas se `classification = PASS` e `decision` autorizar.
-
-O smoke da Fase 26 demonstra esse fluxo registrando bloqueio por report ausente, retomada apos criacao do report da trilha e conclusao com retry count preservado em `1`.
-
-## 12. Conclusao
-
-Uma solicitacao esta concluida quando:
-
-1. todas as etapas necessarias foram executadas;
-2. specs e docs exigidas foram atualizadas;
-3. diagnosticos obrigatorios foram executados;
-4. report final declara `PASS`;
-5. decisao final declara conclusao;
-6. nenhuma stop condition esta ativa;
-7. `automation/INTERACTIVE_STATE.json` registra estado coerente com a conclusao;
-8. gaps restantes estao ausentes ou explicitamente registrados.
-
-No smoke da Fase 26, a conclusao ficou registrada em `automation/INTERACTIVE_STATE.json` com `status = "completed"` e no report de smoke com decisao `SMOKE COMPLETE - READY FOR PHASE 26 AUDIT`.
-
-## 13. Fluxo Completo Bem-Sucedido
-
-Fluxo real usado como referencia:
-
-1. Pedido: adicionar exemplos humanos de intake, ambiguidade, retomada e checklist.
-2. Intake: tipo `docs`, escopo documental, sem mudanca em `pkg/*` ou `internal/*`.
-3. Decisao: `amend` em `Spec 700` e `Spec 701`.
-4. Implementacao: docs, reports e `automation/INTERACTIVE_STATE.json`.
-5. Diagnostico: JSON valido, `go test ./...`, `go test -race ./...` e lints.
-6. Report: `docs/reports/phase-26-interactive-sdd-autopilot-smoke-report.md`.
-7. Gate: `classification = PASS`.
-8. Decisao: `SMOKE COMPLETE - READY FOR PHASE 26 AUDIT`.
-9. Estado: `status = "completed"`.
-
-## 14. Fluxo Bloqueado E Retomado
-
-Fluxo real usado como referencia:
-
-1. A trilha chegou a `report_review`.
-2. O report da etapa ainda estava ausente ou sem `classification` e `decision`.
-3. O gate bloqueou a trilha.
-4. `automation/INTERACTIVE_STATE.json` preservou `retry_count = 1`, classificacao `BLOCKED`, decisao de stop e acao humana recomendada.
-5. A retomada leu estado, specs e evidencia do bloqueio.
-6. A causa foi resolvida com a criacao do report de smoke.
-7. O diagnostico foi reexecutado.
-8. O report passou com `classification = PASS`.
-9. A trilha foi concluida sem alterar `ROADMAP.json`, `PHASE_STATE.json`, gate ou criterio de aceite.
-
-## 15. Checklist Humano
-
-Antes de aceitar a conclusao de uma trilha, revise:
-
-1. pedido inicial e intake normalizado;
-2. decisao entre `amend` e nova trilha dual-spec;
-3. spec de construcao e spec de diagnostico;
-4. arquivos alterados;
-5. comandos e testes executados;
-6. report com `classification` e `decision`;
-7. `automation/INTERACTIVE_STATE.json`;
-8. ausencia de mudancas indevidas em `automation/ROADMAP.json` e `automation/PHASE_STATE.json`;
-9. ausencia de capability de produto fora de spec;
-10. bloqueios e retomadas preservados quando existirem;
-11. gaps restantes explicitamente registrados.
+Quando a trilha virar PR, revise: specs de construcao e diagnostico, `automation/INTERACTIVE_STATE.json`, o report da trilha, docs alteradas e, quando a trilha usar `skills/24-agent-readiness-governance/SKILL.md`, o report de readiness em `docs/reports/agent-readiness/` como evidencia auxiliar — nunca como substituto do gate.
 </file>
 
 <file path="docs/interactive-sdd-autopilot.md">
@@ -3487,7 +3372,22 @@ O `interactive_sdd_autopilot` e o modo de trabalho para transformar uma solicita
 
 Ele existe para orientar o desenvolvimento do repositorio. Ele nao cria API publica, runtime feature, dashboard, runner hospedado, {{UPSTREAM_OPS_NAME}} ou capability de produto do framework.
 
-Use este guia como onboarding humano. As fontes normativas continuam sendo `AGENTS.md`, `specs/680-phase-25-interactive-sdd-autopilot-foundation.md`, `specs/681-phase-25-interactive-sdd-autopilot-foundation-diagnosis.md`, `specs/700-phase-26-interactive-sdd-autopilot-verification-and-human-onboarding.md`, `specs/701-phase-26-interactive-sdd-autopilot-verification-and-human-onboarding-diagnosis.md`, `automation/INTERACTIVE_AUTOPILOT.md`, `automation/INTERACTIVE_RUNBOOK.md`, `automation/STOP_CONDITIONS.md` e `skills/23-{{PROJECT_SLUG}}-sdd-autopilot/SKILL.md`.
+Use este guia como onboarding humano. As fontes normativas sao `AGENTS.md`,
+as specs existentes e aplicaveis em `specs/`, `automation/INTERACTIVE_AUTOPILOT.md`,
+`automation/INTERACTIVE_RUNBOOK.md`, `automation/INTERACTIVE_STATE.json`,
+`automation/STOP_CONDITIONS.md` e
+`skills/23-{{PROJECT_SLUG}}-sdd-autopilot/SKILL.md`.
+
+No template recem-renderizado, os caminhos de specs garantidamente existentes
+sao `specs/000-project-mission.md`, `specs/001-non-goals.md`,
+`specs/010-feature-matrix.md`, `specs/020-repository-architecture.md`,
+`specs/680-phase-0-bootstrap-foundation.md` e
+`specs/681-phase-0-bootstrap-foundation-diagnosis.md`. As duas ultimas
+pertencem a fase atual do `phase_autopilot`; uma trilha interativa continua
+separada e usa `automation/INTERACTIVE_STATE.json`.
+
+Specs de uma trilha interativa que ainda nao existem sao candidatas a criar,
+nunca leitura obrigatoria antecipada.
 
 ## Quando Usar
 
@@ -3561,7 +3461,7 @@ Tipo: docs.
 Escopo conhecido: documentacao humana, exemplos e checklist de revisao.
 Fora do escopo: alterar gates, roadmap fixo, phase state, pkg/*, internal/* ou capability de produto.
 Incertezas: confirmar se a mudanca apenas documenta o fluxo ou se tambem altera regras de gate.
-Specs candidatas: Spec 700, Spec 701, Spec 680, Spec 681.
+Specs candidatas: specs de baseline relevantes e, se necessario, uma nova dual-spec a criar.
 Skills candidatas: 00, 05, 21, 23.
 Decisao inicial: tratar como intake; perguntar se houver mudanca de regra, ou seguir como amend documental se o escopo permanecer apenas em docs.
 ```
@@ -3579,7 +3479,7 @@ Resultado esperado: o Cursor deve perguntar ou bloquear por ambiguidade material
 
 A decisao segue `skills/05-{{PROJECT_SLUG}}-spec-architect/SKILL.md` e `skills/05-{{PROJECT_SLUG}}-spec-architect/references/decision-rules.md`.
 
-Use `amend` quando a mudanca pertence claramente a uma spec ou dominio ja governado. O smoke da Fase 26 fez isso: a solicitacao `phase-26-smoke-onboarding-docs` era documental, pertencia ao dominio da Fase 26 e foi governada por `Spec 700` e `Spec 701`, sem abrir nova dual-spec.
+Use `amend` quando a mudanca pertence claramente a uma spec existente e aprovada. Registre as secoes governantes antes de editar.
 
 Abra nova trilha dual-spec quando a mudanca introduzir novo bounded context, novo contrato principal, impacto transversal proprio ou diagnostico separado. Nesse caso, a implementacao so pode seguir depois de existirem:
 
@@ -3632,15 +3532,12 @@ Leia `automation/INTERACTIVE_STATE.json` para saber onde a trilha esta. Os campo
 12. `current_request.retry_count`: mostra retries consumidos;
 13. `current_request.last_classification` e `last_decision`: registram o ultimo gate;
 14. `current_request.completion_criteria`: mostra os criterios usados para concluir;
-15. `smoke_history`: preserva eventos do smoke da Fase 26, incluindo bloqueio e retomada.
-
-No smoke da Fase 26, o estado final registra `last_completed_request = "phase-26-smoke-onboarding-docs"`, `status = "completed"`, `last_classification = "PASS"` e `last_decision = "SMOKE COMPLETE - READY FOR PHASE 26 AUDIT"`.
 
 ## Diagnostico E Gate
 
-Ao terminar uma etapa implementavel, o Cursor deve executar o diagnostico definido pela spec diagnostica. Para mudancas documentais como o smoke da Fase 26, o diagnostico aceito incluiu:
+Ao terminar uma etapa implementavel, o Cursor deve executar o diagnostico definido pela spec diagnostica. Para uma mudanca documental, a spec pode exigir:
 
-1. validacao JSON de `automation/INTERACTIVE_STATE.json`, `automation/ROADMAP.json` e `automation/PHASE_STATE.json`;
+1. validacao JSON dos arquivos de estado alterados, quando aplicavel;
 2. `go test ./...`;
 3. `go test -race ./...`;
 4. `ReadLints` nos arquivos alterados;
@@ -3709,47 +3606,26 @@ Leia automation/INTERACTIVE_STATE.json, a spec de construcao, a spec de diagnost
 Corrija somente a causa do bloqueio e avance apenas se classification = PASS e decision autorizar.
 ```
 
-## Exemplo Completo Bem-Sucedido
+## Exemplo Ilustrativo De Conclusao
 
-Este exemplo usa o smoke operacional versionado da Fase 26 como fonte de verdade:
+Este fluxo e apenas ilustrativo e nao declara a existencia de artefatos
+historicos:
 
-1. Pedido inicial: adicionar ao onboarding humano exemplos de intake, pedido ambiguo, retomada apos bloqueio e checklist de revisao.
-2. Intake: `request_id = "phase-26-smoke-onboarding-docs"`, `request_type = "docs"`, objetivo documental, escopo restrito a docs, reports e `automation/INTERACTIVE_STATE.json`.
-3. Decisao de spec: `amend` em `Spec 700` e `Spec 701`, porque o pedido pertence ao dominio da Fase 26 e nao cria novo bounded context.
-4. Alteracao governada: docs e reports foram atualizados; `pkg/*`, `internal/*`, `ROADMAP.json` e `PHASE_STATE.json` ficaram fora do escopo.
-5. Diagnostico: validacao JSON, `go test ./...`, `go test -race ./...` e lints dos arquivos alterados passaram.
-6. Report: `docs/reports/phase-26-interactive-sdd-autopilot-smoke-report.md` declarou `classification = PASS`.
-7. Decisao: `SMOKE COMPLETE - READY FOR PHASE 26 AUDIT`.
-8. Estado: `automation/INTERACTIVE_STATE.json` registrou `status = "completed"` e preservou criterios de conclusao.
+1. o pedido inicial entra como `docs`, com escopo, fora de escopo e incertezas registrados;
+2. o intake decide entre amendar uma spec existente ou criar uma dual-spec;
+3. se uma nova trilha for necessaria, as specs de construcao e diagnostico sao criadas e lidas antes da implementacao;
+4. a mudanca e executada somente no escopo aprovado;
+5. o diagnostico coleta as evidencias e gera o report no caminho definido pela trilha;
+6. o report e lido por completo e precisa declarar `classification = PASS` com decisao que autorize conclusao;
+7. somente entao `automation/INTERACTIVE_STATE.json` pode registrar `status = "completed"`.
 
-Artefatos para conferir:
+## Exemplo Ilustrativo De Bloqueio E Retomada
 
-1. `docs/reports/phase-26-interactive-sdd-autopilot-smoke-evidence.md`;
-2. `docs/reports/phase-26-interactive-sdd-autopilot-smoke-report.md`;
-3. `automation/INTERACTIVE_STATE.json`;
-4. `docs/reports/phase-26-interactive-sdd-autopilot-verification-and-human-onboarding-report.md`.
-
-## Exemplo Completo Bloqueado E Retomado
-
-Este exemplo tambem vem do smoke da Fase 26.
-
-Fluxo bloqueado:
-
-1. A trilha chegou a `report_review` depois de intake, decisao de spec e alteracao documental planejada.
-2. Antes da criacao do report de smoke, o gate nao podia avancar porque nao existia report com `classification` e `decision`.
-3. A stop condition acionada foi report ausente ou sem classificacao/decisao explicita, conforme `automation/STOP_CONDITIONS.md`.
-4. O estado esperado ficou com `status = "blocked"`, `current_step = "report_review"`, `retry_count = 1`, `blocked = true` e acao humana recomendada para gerar report diagnostico e reler o gate.
-5. Nenhum gate, criterio de aceite, `ROADMAP.json` ou `PHASE_STATE.json` foi alterado para contornar o bloqueio.
-
-Retomada:
-
-1. A retomada leu `automation/INTERACTIVE_STATE.json`, `Spec 700`, `Spec 701` e `docs/reports/phase-26-interactive-sdd-autopilot-smoke-evidence.md`.
-2. A causa do bloqueio foi resolvida com a criacao de `docs/reports/phase-26-interactive-sdd-autopilot-smoke-report.md`.
-3. O diagnostico foi executado novamente.
-4. O report declarou `classification = PASS`.
-5. A decisao final autorizou conclusao do smoke.
-6. `retry_count` permaneceu `1`, preservando a tentativa corretiva.
-7. `automation/INTERACTIVE_STATE.json` preservou `smoke_history` com `blocked`, `resume` e `completed`.
+1. se a trilha chegar a `report_review` sem report com classificacao e decisao, ela fica bloqueada;
+2. o estado preserva `current_step`, `retry_count`, `blocked = true` e um `block_reason` objetivo;
+3. nenhum gate, criterio de aceite, `ROADMAP.json` ou `PHASE_STATE.json` pode ser alterado para contornar o bloqueio;
+4. a retomada le os artefatos existentes, corrige somente a causa dentro do escopo e reexecuta o diagnostico;
+5. o estado so pode desbloquear quando o novo report satisfizer o gate e nenhuma stop condition permanecer ativa.
 
 ## Checklist Humano Antes De Aceitar Conclusao
 
@@ -3794,6 +3670,175 @@ Quando uma trilha interativa incluir readiness:
 3. classifique cada achado como `worth_it_for_{{PROJECT_SLUG}}`, `optional_for_{{PROJECT_SLUG}}` ou `out_of_scope_for_{{PROJECT_SLUG}}`;
 4. trate achados de app, SaaS, deploy, dashboard, hosted service ou {{UPSTREAM_OPS_NAME}} como fora de escopo salvo spec futura explicita;
 5. referencie o report de readiness como evidencia de apoio no report diagnostico da trilha.
+</file>
+
+<file path="docs/journeys/01-primeira-contribuicao.md">
+# Jornada 01 — Primeira contribuição
+
+Para quem acabou de gerar ou clonar o `{{PROJECT_SLUG}}` e vai fazer a primeira mudança.
+
+## 1. Validar a baseline
+
+```bash
+make setup
+make check-compliance
+make test
+```
+
+Evidência esperada: `check-compliance: ok` e testes verdes. Se algo falhar aqui, a baseline foi alterada ou o ambiente não atende Go 1.26.4+; corrija antes de qualquer contribuição.
+
+## 2. Ler o mínimo normativo
+
+Nesta ordem:
+
+1. [AGENTS.md](../../AGENTS.md) — constituição: fontes de verdade, workflow obrigatório e formato de resposta.
+2. [skills/00-skill-index/SKILL.md](../../skills/00-skill-index/SKILL.md) — roteamento para a skill que governa sua mudança.
+3. A spec que cobre sua mudança em [specs/](../../specs/). Em um projeto recém-gerado existem as specs 000, 001, 010, 020 e o par 680/681 da fase 0.
+4. [docs/ai/capabilities.md](../ai/capabilities.md) — o que existe, o que é processo e o que ainda não existe.
+
+## 3. Estruturar a tarefa
+
+Use [docs/ai/task-input-format.md](../ai/task-input-format.md): objetivo, specs lidas, arquivos em escopo, entregáveis mínimos, validações e formato de saída. Se a mudança não tiver spec governante, pare e registre o gap — não implemente fora de spec.
+
+## 4. Implementar e validar
+
+- Edite apenas arquivos no escopo declarado.
+- Mudança de comportamento exige teste no mesmo patch.
+- Antes de commitar código Go: `make fmt`.
+- Valide com os comandos aplicáveis de [docs/ai/ops-guide.md](../ai/ops-guide.md) (`make fmt-check`, `make lint`, `make vet`, `make test`, `make race`, `make test-security`).
+
+## 5. Abrir o PR
+
+Use `scripts/create-pr-from-template.sh` para gerar o corpo a partir de [.github/PULL_REQUEST_TEMPLATE.md](../../.github/PULL_REQUEST_TEMPLATE.md). O CI valida o corpo com `make check-pr-body`.
+
+## Encerramento
+
+- Evidência esperada: PR com specs lidas, skills aplicadas, comandos e testes executados, e gaps restantes declarados.
+- Bloqueia quando: falta spec governante, um check obrigatório falha, ou a mudança exige decisão humana de arquitetura.
+- Próxima ação humana: revisar com o checklist de [docs/feature-request-lifecycle.md](../feature-request-lifecycle.md); se a mudança merecer trilha completa, seguir a [jornada 03](03-backlog-e-trilha-sdd.md).
+</file>
+
+<file path="docs/journeys/02-fase-do-roadmap.md">
+# Jornada 02 — Executar uma fase do roadmap
+
+Para quem vai operar o `phase_autopilot`: executar a fase atual do roadmap fixo ou retomar após bloqueio. As fontes normativas são [automation/AUTOPILOT.md](../../automation/AUTOPILOT.md) e [automation/RUNBOOK.md](../../automation/RUNBOOK.md); esta jornada só organiza a operação humana.
+
+## 1. Conferir o estado antes de iniciar
+
+Leia `automation/PHASE_STATE.json` e localize em `automation/ROADMAP.json` a entrada cujo `id` é `current_phase`. Anote `spec_file`, `diagnosis_spec_file`, `report_file` e `advance_only_if`. Em um projeto recém-gerado, a fase atual é a fase 0 (bootstrap), governada pelo par de specs 680/681.
+
+Se `blocked = true`, não inicie execução normal: vá direto ao passo 4.
+
+## 2. Iniciar a execução
+
+Cole em um agente o prompt mestre da seção 15 de [automation/RUNBOOK.md](../../automation/RUNBOOK.md). O agente deve executar somente a fase atual: criar ou validar a dual-spec, implementar, diagnosticar, gerar o report no caminho exato de `report_file` e atualizar `PHASE_STATE.json`.
+
+O que observar enquanto acompanha:
+
+- a implementação só começa depois que as duas specs da fase existem e foram lidas;
+- o roadmap não pode ser reordenado, e gates não podem ser editados;
+- trilhas interativas não entram aqui — `ROADMAP.json` e `PHASE_STATE.json` pertencem só ao modo de fases.
+
+## 3. Conferir o gate
+
+A fase só avança quando todas as condições valem:
+
+1. o report existe no caminho exato de `report_file` e corresponde à fase atual;
+2. `classification` e `decision` são exatamente os valores de `advance_only_if`;
+3. `go test ./...` e `go test -race ./...` passaram;
+4. nenhuma stop condition de [automation/STOP_CONDITIONS.md](../../automation/STOP_CONDITIONS.md) está ativa;
+5. `PHASE_STATE.json` foi atualizado de forma coerente.
+
+## 4. Retomar após bloqueio
+
+Use o prompt de retomada da seção 17 de [automation/RUNBOOK.md](../../automation/RUNBOOK.md). Regras que você deve fiscalizar: não resetar roadmap, não zerar `retry_count` sem resolver a causa, não avançar com `blocked = true`, e no máximo `max_retries_per_phase` retries corretivos (definido em `ROADMAP.json`).
+
+## Encerramento
+
+- Evidência esperada: report da fase com classificação e decisão exatas do gate, e `PHASE_STATE.json` apontando a próxima fase (`pending`) ou `finished` na última.
+- Bloqueia quando: report ausente ou inconsistente, teste obrigatório falho, retries excedidos ou decisão humana de arquitetura pendente.
+- Próxima ação humana: em bloqueio persistente, ler o motivo em `block_reason`, decidir a correção de escopo e, se a causa for um pedido novo, encaminhá-lo pela [jornada 03](03-backlog-e-trilha-sdd.md) em vez de alterar o roadmap.
+</file>
+
+<file path="docs/journeys/03-backlog-e-trilha-sdd.md">
+# Jornada 03 — Do backlog à trilha SDD
+
+Para quem tem um pedido, gap, bug, diagnóstico ou ideia e quer transformá-lo em entrega governada. O caminho tem duas etapas independentes: registrar no backlog (sem implementar) e, quando priorizado, abrir a trilha interativa de SDD.
+
+## Parte A — Registrar no backlog
+
+Fonte normativa: [skills/26-backlog-item-intake/SKILL.md](../../skills/26-backlog-item-intake/SKILL.md).
+
+1. Normalize a entrada: texto original, tipo, objetivo observável, evidência disponível, specs e skills candidatas, incertezas.
+2. Deduplique: procure itens `BLG-*` equivalentes em [docs/backlog/Backlog.md](../backlog/Backlog.md) antes de criar um novo.
+3. Classifique com as regras da skill (status, prioridade, severidade, risco, impacto em API pública).
+4. Persista usando o template de item da skill; o primeiro item do projeto recebe `BLG-0001`.
+5. Para itens não bloqueados por gap de spec, inclua os dois prompts pareados de autopilot (implementação e diagnóstico).
+
+Regras que não se negociam: o backlog não substitui spec, report nem decisão humana; nenhum item vira implementação sem spec de construção e spec de diagnóstico; intake não altera `pkg/*`, `internal/*` nem API pública.
+
+## Parte B — Abrir a trilha interativa
+
+Fonte normativa: [interactive-sdd-autopilot.md](../interactive-sdd-autopilot.md) (modelos de pedido) e [automation/INTERACTIVE_RUNBOOK.md](../../automation/INTERACTIVE_RUNBOOK.md).
+
+1. Formule o pedido explícito com comportamento esperado, escopo conhecido e fora de escopo.
+2. Acompanhe o intake: tipo do pedido, incertezas materiais e decisão inicial. Pedido ambíguo deve gerar perguntas ou bloqueio, não implementação.
+3. Confira a decisão de spec: `amend` em spec existente ou nova trilha dual-spec (skill [05](../../skills/05-{{PROJECT_SLUG}}-spec-architect/SKILL.md) governa a decisão). Nova trilha só segue com spec de construção e spec de diagnóstico criadas.
+4. Acompanhe implementação e diagnóstico pelo estado em `automation/INTERACTIVE_STATE.json`.
+5. Aceite a conclusão apenas com report `classification = PASS` e decisão que autorize encerramento — o checklist humano completo está em [feature-request-lifecycle.md](../feature-request-lifecycle.md).
+
+## Encerramento
+
+- Evidência esperada: item `BLG-*` atualizado (Parte A); dual-spec, report `PASS` e `INTERACTIVE_STATE.json` coerente (Parte B).
+- Bloqueia quando: falta decisão de spec, falta resposta humana para requisito material, teste obrigatório falha ou a correção exigiria escopo proibido.
+- Próxima ação humana: em bloqueio, ler `block_reason` e o report da etapa, responder a pendência material e retomar a partir dos artefatos — nunca da memória da conversa.
+</file>
+
+<file path="docs/journeys/04-release-e-decisoes.md">
+# Jornada 04 — Release, changelog e decisões
+
+Para quem vai recomendar um release, atualizar o changelog ou registrar uma decisão de arquitetura. Fontes normativas: [release-versioning-policy.md](../release-versioning-policy.md), [release-notes-policy.md](../release-notes-policy.md), [release-checklist.md](../release-checklist.md) e a skill [22](../../skills/22-release-versioning-governance/SKILL.md).
+
+## 1. Classificar a mudança
+
+Determine a superfície pública tocada e a classificação SemVer (`no release`, `patch`, `minor`, `major`) conforme a política de versionamento. Regras que não se negociam: breaking change é `major` mesmo em `v0.x.y`; docs/spec/report-only tende a `NO_RELEASE`; prerelease (`alpha`/`beta`/`rc`) é maturidade do candidato, não disfarce de incompatibilidade.
+
+## 2. Preencher o checklist
+
+Use [release-checklist.md](../release-checklist.md): cabeçalho (versão candidata, classificação, caminho de distribuição) e gates marcados como `PASS`, `FAIL` ou `UNVERIFIED`, incluindo `go test ./...` e `go test -race ./...`. Gate crítico com `FAIL` impede `STABLE_TAG`; `UNVERIFIED` precisa aparecer nas release notes.
+
+## 3. Atualizar changelog e release notes
+
+Siga [release-notes-policy.md](../release-notes-policy.md): `CHANGELOG.md` no formato Keep a Changelog com seção `[Unreleased]`, e release notes com summary, compatibilidade, gates e riscos residuais.
+
+## 4. Registrar decisões
+
+Decisão de arquitetura ou governança não óbvia vira ADR em [decisions/](../decisions/), seguindo o formato e a numeração de [decisions/README.md](../decisions/README.md). ADR aceito é imutável; revisões criam um ADR novo que o supersede.
+
+## Encerramento
+
+- Evidência esperada: checklist preenchido com decisão final e versão recomendada, changelog atualizado e, quando houver decisão não óbvia, ADR numerado.
+- Bloqueia quando: gate crítico em `FAIL`, blocker aberto para a capability afetada, ou evidência insuficiente para prometer estabilidade (use `HOLD_RELEASE` ou `PRERELEASE_TAG`).
+- Próxima ação humana: publicar a tag escolhida; se a avaliação revelar gaps, registrá-los pelo backlog na [jornada 03](03-backlog-e-trilha-sdd.md).
+</file>
+
+<file path="docs/journeys/README.md">
+# Jornadas do {{PROJECT_TITLE}}
+
+Guias humanos passo a passo. Cada jornada aponta para as fontes normativas em vez de duplicá-las, e termina com a evidência esperada, as condições de bloqueio e a próxima ação humana.
+
+| Jornada | Quando usar | Fontes normativas |
+| --- | --- | --- |
+| [01 — Primeira contribuição](01-primeira-contribuicao.md) | Acabou de clonar ou gerar o projeto e vai fazer a primeira mudança | [AGENTS.md](../../AGENTS.md), [skills/00-skill-index/SKILL.md](../../skills/00-skill-index/SKILL.md) |
+| [02 — Fase do roadmap](02-fase-do-roadmap.md) | Vai executar ou retomar uma fase do `phase_autopilot` | [automation/AUTOPILOT.md](../../automation/AUTOPILOT.md), [automation/RUNBOOK.md](../../automation/RUNBOOK.md) |
+| [03 — Backlog e trilha SDD](03-backlog-e-trilha-sdd.md) | Tem um pedido, gap ou bug para registrar e transformar em trilha governada | [skills/26-backlog-item-intake/SKILL.md](../../skills/26-backlog-item-intake/SKILL.md), [interactive-sdd-autopilot.md](../interactive-sdd-autopilot.md) |
+| [04 — Release e decisões](04-release-e-decisoes.md) | Vai recomendar release, atualizar changelog ou registrar ADR | [release-versioning-policy.md](../release-versioning-policy.md), [skills/22-release-versioning-governance/SKILL.md](../../skills/22-release-versioning-governance/SKILL.md) |
+
+Regras que valem para todas as jornadas:
+
+- O report da etapa é a fonte de verdade para avanço; testes verdes ou narrativa não satisfazem gate.
+- Pare imediatamente em qualquer stop condition de [automation/STOP_CONDITIONS.md](../../automation/STOP_CONDITIONS.md).
+- Specs ainda inexistentes são candidatas a criar, nunca leitura obrigatória antecipada.
 </file>
 
 <file path="docs/plans/.gitkeep">
@@ -4179,7 +4224,7 @@ Esta policy operacionaliza no repositorio as mesmas fronteiras usadas pela skill
 <file path="go.mod.tmpl">
 module {{MODULE_PATH}}
 
-go 1.26.3
+go 1.26.4
 </file>
 
 <file path="internal/.gitkeep">
@@ -5476,7 +5521,9 @@ O pacote de specs so esta fechado quando todos os campos obrigatorios de constru
 <file path="skills/05-{{PROJECT_SLUG}}-spec-architect/references/spec-routing-and-examples.md">
 # Routing and examples for {{PROJECT_SLUG}}
 
-## Dominios canonicos
+Os dominios e exemplos abaixo sao ilustrativos: eles mostram como rotear pedidos vagos para dominios de spec, mas nenhuma dessas specs existe em `specs/` ate ser criada por uma trilha dual-spec. Trate os numeros como convencao de exemplo, nao como arquivos existentes.
+
+## Dominios de exemplo
 - `030-agent`: API publica do agent, execucao sincrona/streaming, tools, memory, guardrails, hooks.
 - `050-memory`: semantica de memoria conversacional, `SessionID`, `Store`, persistencia, isolamento por sessao.
 - `070-workflows`: builder, workflow runnable, state, retry, branching, hooks, history.
@@ -5677,11 +5724,12 @@ Use este arquivo como resumo operacional do `AGENTS.md`.
 
 ## Source of truth
 - `specs/` governa requisitos por modulo.
-- `specs/000-compatibility-target.md` define compatibilidade e regras globais.
+- `specs/000-project-mission.md` define a missao e as regras globais.
 - `specs/001-non-goals.md` define exclusoes de escopo.
 - `specs/010-feature-matrix.md` funciona como checklist de cobertura, prioridade, risco e paridade.
 - `specs/020-repository-architecture.md` governa fronteiras entre `pkg/`, `internal/`, `test/` e `examples/`.
-- Specs especificas, como `030-agent`, `050-memory` e `070-workflows`, governam contratos de modulo.
+- `specs/680-phase-0-bootstrap-foundation.md` e `specs/681-phase-0-bootstrap-foundation-diagnosis.md` formam a dual-spec da fase atualmente declarada em `automation/ROADMAP.json`.
+- Specs de modulo ou de trilhas futuras sao candidatas a criar ou aprovar; nao devem ser exigidas como leitura antes de existirem e serem selecionadas pela tarefa ou pelo roadmap.
 - Se implementacao e spec divergirem, a spec prevalece.
 
 ## Workflow obrigatorio
@@ -5751,7 +5799,7 @@ Goal: allow each {{DOMAIN_ACTOR}} to select providers/models/params safely while
 - **Don't** skip validation just because params are flexible.
 
 ## Interfaces / Contracts
-- Schema + cache described in [{{DOMAIN_ACTOR}}_model_config_schema.md](resources/{{DOMAIN_ACTOR}}_model_config_schema.md).
+- Schema + cache described in [model_config_schema.md](resources/model_config_schema.md).
 - Port example:
   ```go
   type {{DOMAIN_ACTOR_TITLE}}ModelConfigStore interface {
@@ -5788,7 +5836,7 @@ Goal: allow each {{DOMAIN_ACTOR}} to select providers/models/params safely while
 - Admin update: begin tx, update row, insert audit entry, delete Redis key, commit.
 </file>
 
-<file path="skills/06-multi-provider-model-routing/resources/seller_model_config_schema.md">
+<file path="skills/06-multi-provider-model-routing/resources/model_config_schema.md">
 # {{DOMAIN_ACTOR}}_model_config Schema
 
 Table: `control.{{DOMAIN_ACTOR}}_model_config`
@@ -8594,14 +8642,14 @@ Before editing, read:
 1. `AGENTS.md`
 2. `skills/00-skill-index/SKILL.md`
 3. `skills/05-{{PROJECT_SLUG}}-spec-architect/SKILL.md`
-4. `specs/680-phase-25-interactive-sdd-autopilot-foundation.md`
-5. `specs/681-phase-25-interactive-sdd-autopilot-foundation-diagnosis.md`
-6. `automation/INTERACTIVE_AUTOPILOT.md`
-7. `automation/INTERACTIVE_RUNBOOK.md`
-8. `automation/INTERACTIVE_STATE.json`
-9. `automation/STOP_CONDITIONS.md`
+4. `automation/INTERACTIVE_AUTOPILOT.md`
+5. `automation/INTERACTIVE_RUNBOOK.md`
+6. `automation/INTERACTIVE_STATE.json`
+7. `automation/STOP_CONDITIONS.md`
 
-Then read the specs, skills and docs that govern the requested domain.
+Then read only the existing specs, skills and docs that govern the requested
+domain. A build or diagnosis spec that does not yet exist is a candidate to
+create after the spec decision, not required reading before that point.
 
 ## Non-Negotiables
 
@@ -8657,7 +8705,7 @@ Implement only the scoped behavior covered by the specs.
 
 Rules:
 
-- preserve `pkg/` and `internal/` boundaries from `Spec 020`
+- preserve `pkg/` and `internal/` boundaries from `specs/020-repository-architecture.md`
 - update tests when behavior changes
 - update docs when public or operational behavior changes
 - do not change fixed roadmap files to make the interactive trail pass
@@ -8799,7 +8847,10 @@ Before applying this skill, read:
 5. `skills/23-{{PROJECT_SLUG}}-sdd-autopilot/SKILL.md` when the work is part of an interactive autopilot trail
 6. `docs/interactive-sdd-autopilot.md` when the work is part of an interactive autopilot trail
 7. the current `agent-readiness` report if one already exists
-8. `specs/720-agent-readiness-governance-assessment.md` and `specs/721-agent-readiness-governance-assessment-diagnosis.md` when running the baseline {{PROJECT_SLUG}} readiness assessment
+
+When a readiness assessment requires a dedicated build or diagnosis spec that
+does not exist yet, treat those paths as candidates to create through the
+normal dual-spec decision. Do not require them as pre-existing reading.
 
 If release, CI, security or OpenAPI files are changed, also route through the relevant domain skill from `skills/00-skill-index/SKILL.md`.
 
@@ -8826,7 +8877,7 @@ Classify a finding as `worth_it_for_{{PROJECT_SLUG}}` when it improves one or mo
 - SDD/dual-spec workflow clarity
 - Cursor/agent rules and automation reliability
 - PR review quality and reproducibility
-- testability, smoke coverage, conformance or regression safety
+- testability, quick-check coverage, conformance or regression safety
 - CI checks for library quality
 - security hygiene relevant to a Go library/framework
 - open-source contributor onboarding

@@ -26,14 +26,14 @@ Before editing, read:
 1. `AGENTS.md`
 2. `skills/00-skill-index/SKILL.md`
 3. `skills/05-{{PROJECT_SLUG}}-spec-architect/SKILL.md`
-4. `specs/680-phase-25-interactive-sdd-autopilot-foundation.md`
-5. `specs/681-phase-25-interactive-sdd-autopilot-foundation-diagnosis.md`
-6. `automation/INTERACTIVE_AUTOPILOT.md`
-7. `automation/INTERACTIVE_RUNBOOK.md`
-8. `automation/INTERACTIVE_STATE.json`
-9. `automation/STOP_CONDITIONS.md`
+4. `automation/INTERACTIVE_AUTOPILOT.md`
+5. `automation/INTERACTIVE_RUNBOOK.md`
+6. `automation/INTERACTIVE_STATE.json`
+7. `automation/STOP_CONDITIONS.md`
 
-Then read the specs, skills and docs that govern the requested domain.
+Then read only the existing specs, skills and docs that govern the requested
+domain. A build or diagnosis spec that does not yet exist is a candidate to
+create after the spec decision, not required reading before that point.
 
 ## Non-Negotiables
 
@@ -89,7 +89,7 @@ Implement only the scoped behavior covered by the specs.
 
 Rules:
 
-- preserve `pkg/` and `internal/` boundaries from `Spec 020`
+- preserve `pkg/` and `internal/` boundaries from `specs/020-repository-architecture.md`
 - update tests when behavior changes
 - update docs when public or operational behavior changes
 - do not change fixed roadmap files to make the interactive trail pass

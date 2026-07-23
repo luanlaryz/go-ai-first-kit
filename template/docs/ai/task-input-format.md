@@ -1,7 +1,7 @@
 # Task Input Format
 
 Use este formato quando abrir uma tarefa para Codex, Cursor ou outro agente.
-Ele complementa `AGENTS.md`, reduz drift entre prompt, spec e resultado entregue, e materializa a `Spec 350`, secoes 5.1 e 5.2.
+Ele complementa `AGENTS.md` e reduz drift entre prompt, spec e resultado entregue.
 
 ## Campos obrigatorios
 

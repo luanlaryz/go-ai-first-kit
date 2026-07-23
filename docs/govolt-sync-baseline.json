@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "upstream": {
+    "repository": "https://github.com/inventa-shop/govolt",
+    "applied_release": "v1.2.0",
+    "applied_sha": "95fcb803518b"
+  },
+  "previous_sync": {
+    "release": "v1.0.0",
+    "sha": "8242c0ef9ce4",
+    "confidence": "inferred_proxy"
+  },
+  "comparison_method": "semantic artifact mapping; the repositories do not share Git ancestry",
+  "intentional_exclusions": [
+    "provider runtime capabilities and product specs",
+    "upstream backlog items, ADRs, reports, counts and release history",
+    "GitHub Pages, generated HTML and CDN-based documentation publishing"
+  ]
+}
