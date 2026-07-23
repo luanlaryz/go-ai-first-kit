@@ -2,9 +2,10 @@
 
 ## 1. Project mission
 
-- `{{PROJECT_SLUG}}` existe para construir uma biblioteca em Go inspirada no nucleo do {{UPSTREAM_NAME}}.
-- O objetivo principal e atingir paridade funcional com o framework base do {{UPSTREAM_NAME}}.
-- A API publica deve ser idiomatica em Go, mesmo quando o conceito de origem vier do {{UPSTREAM_NAME}}.
+- `{{PROJECT_SLUG}}` existe para entregar `{{PROJECT_DESCRIPTION}}` como um projeto Go versionavel, testavel e operavel por humanos e agentes, conforme `specs/000-project-mission.md`.
+- Upstream de referencia declarado: `{{UPSTREAM_NAME}}`. Quando esse valor for `none`, nao existe framework de referencia e as regras de paridade upstream da secao 8 nao se aplicam.
+- Quando houver upstream real declarado, o objetivo e paridade funcional idiomatica em Go, nunca copia textual de API.
+- A API publica deve ser idiomatica em Go, mesmo quando um conceito vier do upstream declarado.
 - Serviços hospedados obrigatórios e control planes permanecem fora do escopo inicial.
 - O repositorio segue Spec Driven Development rigoroso.
 
@@ -15,12 +16,14 @@
 - `specs/001-non-goals.md` define o que nao pode entrar no escopo.
 - `specs/010-feature-matrix.md` deve ser usada como checklist de cobertura, prioridade, risco e paridade.
 - `specs/020-repository-architecture.md` define as fronteiras entre `pkg/`, `internal/`, `test/` e `examples/`.
-- Specs especificas de modulo, como `specs/030-agent.md` e `specs/031-app-instance.md`, governam o contrato daquele modulo.
-- `specs/680-phase-25-interactive-sdd-autopilot-foundation.md` e `specs/681-phase-25-interactive-sdd-autopilot-foundation-diagnosis.md` governam o modo `interactive_sdd_autopilot`.
+- `specs/680-phase-0-bootstrap-foundation.md` e `specs/681-phase-0-bootstrap-foundation-diagnosis.md` governam a fase 0 atualmente declarada em `automation/ROADMAP.json`.
+- Em um projeto recem-renderizado, as seis specs acima sao as unicas specs versionadas cuja leitura pode ser exigida por caminho fixo.
+- Specs de modulo ou de trilhas futuras sao candidatas a criar ou aprovar; nao devem ser tratadas como leitura obrigatoria enquanto nao existirem no repositorio e nao forem selecionadas pelo contexto da tarefa ou pelo roadmap.
 - `automation/AUTOPILOT.md`, `automation/RUNBOOK.md`, `automation/ROADMAP.json` e `automation/PHASE_STATE.json` governam o modo `phase_autopilot`.
 - `automation/INTERACTIVE_AUTOPILOT.md`, `automation/INTERACTIVE_RUNBOOK.md` e `automation/INTERACTIVE_STATE.json` governam trilhas interativas de feature request.
 - `docs/backlog/Backlog.md` e o backlog canonico para itens governados; fontes historicas em `docs/backlog/**` nao viram itens implementaveis sem triagem pela skill `skills/26-backlog-item-intake/SKILL.md`.
 - `docs/decisions/` (ADRs) registra decisoes de arquitetura e governanca; `docs/release-versioning-policy.md`, `docs/release-notes-policy.md` e `docs/release-checklist.md` governam versionamento, changelog e release notes alinhados a `skills/22-release-versioning-governance/SKILL.md`.
+- `docs/README.md`, `docs/ai/capabilities.md` e `docs/journeys/` sao superficies de navegacao e descoberta; elas nao substituem as specs nem este documento como fonte normativa.
 - Se houver conflito entre implementacao existente e spec aprovada, a spec prevalece.
 
 ## 3. Required execution workflow
@@ -35,7 +38,7 @@
 - Toda mudanca relevante deve ser validada contra a feature matrix como checklist de cobertura.
 - Toda trilha nova deve nascer com duas specs complementares: uma spec de construcao e uma spec de diagnostico.
 - Nao considerar uma trilha nova suficientemente spec driven se existir apenas spec de construcao sem spec de diagnostico.
-- Ao propor uma nova trilha, o agente deve verificar se ambas as specs existem. Se faltar qualquer uma delas, deve refinar o pedido ate fechar as duas antes de seguir para implementacao.
+- Ao propor uma nova trilha, o agente deve tratar os caminhos das duas specs como candidatos a criar, refinar o pedido ate fecha-las e so entao seguir para implementacao. Nao deve exigir a leitura de uma candidata antes de ela existir.
 - Para solicitacoes interativas de feature, evolucao, bug, refatoracao ou docs, usar `interactive_sdd_autopilot`: intake, requisitos, decisao de spec, dual-spec, implementacao, diagnostico, report e gate.
 - Para registrar pedidos, gaps, bugs, diagnosticos, recomendacoes ou ideias como backlog, usar `skills/26-backlog-item-intake/SKILL.md`, deduplicar em `docs/backlog/Backlog.md`, classificar escopo e specs, e nao promover fontes historicas em lote para itens `BLG-*`.
 - Para decisoes de release/versionamento e changelog, usar `skills/22-release-versioning-governance/SKILL.md` com `docs/release-versioning-policy.md`, `docs/release-notes-policy.md` e `docs/release-checklist.md`; registrar decisoes de arquitetura/governanca nao-obvias como ADR em `docs/decisions/`.
@@ -68,8 +71,8 @@
 
 - API publica deve ser pequena, intencional e orientada a contratos observaveis.
 - Priorizar `context.Context` como fronteira padrao para execucao, cancelamento e lifecycle.
-- Nomes, tipos e assinaturas em Go nao precisam copiar o {{UPSTREAM_NAME}} literalmente.
-- Diferencas em relacao ao {{UPSTREAM_NAME}} so sao aceitaveis quando forem idiomaticas em Go e estiverem explicitadas na spec correspondente ou na feature matrix.
+- Nomes, tipos e assinaturas em Go nao precisam copiar o upstream declarado literalmente.
+- Diferencas em relacao ao upstream declarado so sao aceitaveis quando forem idiomaticas em Go e estiverem explicitadas na spec correspondente ou na feature matrix.
 - Nunca alterar API publica sem atualizar a spec correspondente e os testes de contrato afetados.
 - Sempre documentar erros observaveis, comportamento de cancelamento e ordem de execucao quando fizerem parte do contrato.
 - Preferir construtores claros, options objetivas e tipos exportados apenas quando necessario.
@@ -103,11 +106,12 @@
 - Toda PR, patch ou entrega deve deixar claro qual spec foi atendida e quais criterios de aceitacao foram cobertos.
 - Quando uma feature for parcialmente implementada, registrar explicitamente o que ficou pendente e qual secao da spec ainda nao foi atendida.
 
-## 8. {{UPSTREAM_NAME}} parity rules
+## 8. Upstream parity rules
 
+- Estas regras aplicam-se somente quando o upstream declarado na missao nao for `none`.
 - O objetivo e paridade funcional, nao copia textual de API.
 - Comparar comportamento por entrada, saida, efeitos colaterais controlados, erros e ordem de operacoes relevantes.
-- Diferencas em relacao ao {{UPSTREAM_NAME}} so sao aceitaveis quando forem idiomaticas em Go e estiverem explicitadas na spec ou na feature matrix.
+- Diferencas em relacao ao upstream declarado so sao aceitaveis quando forem idiomaticas em Go e estiverem explicitadas na spec ou na feature matrix.
 - Nao aceitar divergencia "conveniente" apenas para simplificar a implementacao.
 - Nao introduzir nada de {{UPSTREAM_OPS_NAME}}.
 - Quando houver diferenca intencional de comportamento, registrar a justificativa e o impacto na paridade.
@@ -129,7 +133,7 @@
 - Explicar quais testes foram adicionados, atualizados ou executados.
 - Explicar gaps restantes, limitacoes conhecidas e o que ficou fora da entrega.
 - Se a tarefa nao puder ser implementada por falta de spec, dizer isso explicitamente e apontar o gap de especificacao.
-- Se houver divergencia intencional em relacao ao {{UPSTREAM_NAME}}, apontar a spec ou item da feature matrix que autoriza a diferenca.
+- Se houver divergencia intencional em relacao ao upstream declarado, apontar a spec ou item da feature matrix que autoriza a diferenca.
 
 ## 11. Interactive SDD autopilot
 
@@ -138,7 +142,7 @@
 - Primeiro normalize tipo, objetivo, escopo conhecido, incertezas, specs candidatas e skills candidatas.
 - Se houver ambiguidade material, pergunte antes de editar.
 - Decida entre amendar spec existente e criar nova trilha dual-spec usando `skills/05-{{PROJECT_SLUG}}-spec-architect/SKILL.md`.
-- Crie ou refine spec de construcao e spec de diagnostico antes de implementar comportamento novo.
+- Crie ou refine spec de construcao e spec de diagnostico antes de implementar comportamento novo; ate serem criadas, trate-as somente como candidatas, nunca como arquivos obrigatorios ja existentes.
 - Atualize `automation/INTERACTIVE_STATE.json` para registrar etapa, specs, report, classificacao, decisao, retries e bloqueio.
 - Avance automaticamente somente quando o report da etapa declarar `classification = PASS` e decisao final autorizar avanco ou conclusao.
 - Ao encerrar uma iteracao interativa, responder tambem com: `report lido`, `classificacao`, `decisao`, `estado atualizado` e `proxima etapa ou motivo de bloqueio`.

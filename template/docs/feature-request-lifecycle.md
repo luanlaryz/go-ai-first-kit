@@ -2,19 +2,15 @@
 
 ## Objetivo
 
-Este documento descreve o ciclo humano de uma solicitacao interativa no `{{PROJECT_SLUG}}`.
+Este documento descreve como uma pessoa inicia, acompanha, revisa, bloqueia, retoma e aceita uma solicitacao interativa no `{{PROJECT_SLUG}}`.
 
-Ele complementa `docs/interactive-sdd-autopilot.md`, `automation/INTERACTIVE_AUTOPILOT.md`, `automation/INTERACTIVE_RUNBOOK.md`, `automation/STOP_CONDITIONS.md` e `skills/23-{{PROJECT_SLUG}}-sdd-autopilot/SKILL.md`.
+Ele e o guia do lado humano. O guia de execucao do modo interativo, incluindo a maquina de estados, o gate e os campos de `automation/INTERACTIVE_STATE.json`, esta em `docs/interactive-sdd-autopilot.md`. As fontes normativas sao `AGENTS.md`, `automation/INTERACTIVE_AUTOPILOT.md`, `automation/INTERACTIVE_RUNBOOK.md`, `automation/STOP_CONDITIONS.md` e `skills/23-{{PROJECT_SLUG}}-sdd-autopilot/SKILL.md`.
 
-O ciclo abaixo descreve como uma pessoa deve iniciar, acompanhar, revisar, bloquear, retomar e aceitar uma trilha de `interactive_sdd_autopilot`.
+Os exemplos deste documento sao ilustrativos: eles mostram o formato esperado e nao declaram a existencia de specs, reports ou trilhas historicas neste repositorio.
 
-## 1. Pedido Inicial
+## 1. Iniciar uma solicitacao
 
-O usuario descreve uma feature, evolucao, bug, refatoracao, investigacao ou mudanca documental.
-
-O pedido inicial nao e uma spec aprovada. Ele e a entrada para intake.
-
-Pedido recomendado:
+O pedido inicial e intake, nao spec aprovada. Descreva a mudanca observavel, o escopo conhecido e os limites:
 
 ```text
 Execute o interactive_sdd_autopilot do {{PROJECT_SLUG}} para esta solicitacao:
@@ -27,254 +23,87 @@ Fora do escopo:
 - <limites que nao devem ser cruzados>
 ```
 
-Se o usuario nao informar escopo ou criterios suficientes, o Cursor deve normalizar o que existe e perguntar pelo menor conjunto util de informacoes.
+Se voce nao souber detalhar escopo ou criterios, envie o que existe: o agente deve normalizar o pedido e perguntar pelo menor conjunto util de informacoes.
 
-## 2. Intake
-
-Durante o intake, o Cursor deve registrar:
-
-1. texto original;
-2. tipo do pedido;
-3. objetivo;
-4. escopo conhecido;
-5. fora do escopo quando identificavel;
-6. incertezas materiais;
-7. specs candidatas;
-8. skills candidatas;
-9. decisao inicial.
-
-Exemplo de intake versionado: `docs/reports/phase-26-interactive-sdd-autopilot-smoke-evidence.md`.
-
-No smoke da Fase 26, o pedido foi classificado como `docs`, com objetivo de consolidar exemplos humanos de uso do modo interativo. O escopo ficou restrito a docs, reports e `automation/INTERACTIVE_STATE.json`.
-
-## 3. Refinamento
-
-O Cursor deve perguntar antes de editar quando faltarem informacoes materiais sobre:
-
-1. comportamento observavel;
-2. escopo;
-3. fora de escopo;
-4. contrato publico;
-5. impacto arquitetural;
-6. estrategia de testes;
-7. criterio diagnostico;
-8. criterio de aceite;
-9. decisao humana de arquitetura.
-
-As perguntas devem ser objetivas e poucas por vez.
-
-Pedido que deve perguntar ou bloquear:
+Pedido que deve gerar perguntas ou bloqueio, nunca implementacao direta:
 
 ```text
 Execute o interactive_sdd_autopilot do {{PROJECT_SLUG}} para esta solicitacao:
 Melhore o autopilot para ser mais seguro.
 ```
 
-Esse pedido nao define objetivo observavel, escopo, diagnostico, testes nem criterio de aceite. O Cursor nao deve implementar baseado nessa frase.
+Esse pedido nao define objetivo observavel, escopo, diagnostico, testes nem criterio de aceite.
 
-## 4. Decisao De Spec
+## 2. O que conferir no intake
 
-O Cursor deve decidir entre `amend` e nova trilha dual-spec.
+Depois do intake, uma pessoa deve conseguir ler na resposta do agente:
 
-Use `amend` quando a solicitacao pertence a um dominio ja governado e a spec existente consegue receber a regra, criterio ou exemplo sem misturar responsabilidades. O smoke da Fase 26 usou esse caminho porque a mudanca era onboarding humano exigido por `Spec 700` e diagnosticado por `Spec 701`.
+1. o texto original preservado;
+2. o tipo do pedido (`feature`, `evolution`, `bug`, `refactor`, `docs` ou `investigation`);
+3. objetivo e escopo conhecido;
+4. incertezas materiais e perguntas abertas;
+5. specs e skills candidatas;
+6. a decisao inicial: perguntar, amendar spec existente ou preparar nova trilha dual-spec.
 
-Abra nova trilha dual-spec quando a solicitacao cria novo bounded context, novo contrato principal, diagnostico separado ou impacto transversal que merece governanca propria.
+Se o agente pergunta, responda apenas as pendencias materiais. Perguntas sobre comportamento observavel, contrato publico, estrategia de testes e criterio de aceite bloqueiam a trilha ate serem respondidas.
 
-Uma nova trilha so pode seguir quando tiver:
+## 3. O que conferir na decisao de spec
 
-1. spec de construcao;
-2. spec de diagnostico.
+A decisao entre `amend` e nova trilha dual-spec segue `skills/05-{{PROJECT_SLUG}}-spec-architect/SKILL.md`.
 
-Se a decisao de spec estiver ausente, a trilha deve bloquear antes de implementacao.
+Para `amend`, confira se o agente registrou as specs existentes lidas, as secoes governantes e o motivo para nao abrir nova trilha.
 
-## 5. Specs Governantes
-
-Antes de implementar, uma pessoa deve conseguir apontar quais specs governam a mudanca.
-
-Para uma trilha `amend`, confira:
-
-1. specs existentes lidas;
-2. secoes governantes;
-3. motivo para nao abrir nova dual-spec;
-4. lacunas registradas, se houver.
-
-Para uma nova trilha dual-spec, confira:
+Para nova trilha, confira se existem, antes de qualquer implementacao:
 
 1. spec de construcao com objetivo, escopo, fora de escopo, comportamento observavel, testes e criterios de aceite;
-2. spec de diagnostico com sinais, modos de falha, comandos, evidencias, classificacao, decisao e report esperado;
-3. aderencia entre as duas specs.
+2. spec de diagnostico com sinais observaveis, modos de falha, comandos, evidencias, classificacao e decisao esperada.
 
-## 6. Implementacao Governada
+Decisao de spec ausente e motivo de bloqueio, nao de tolerancia.
 
-A implementacao so comeca quando as specs governantes cobrem a mudanca.
+## 4. O que conferir durante a implementacao
 
-Durante a implementacao, o Cursor deve:
+1. Somente arquivos no escopo aprovado foram editados.
+2. `pkg/` e `internal/` ficaram intactos quando a trilha for so de governanca, docs ou onboarding.
+3. `automation/ROADMAP.json` e `automation/PHASE_STATE.json` nao foram usados para representar a trilha interativa.
+4. Testes acompanharam qualquer mudanca de comportamento.
+5. Gaps que nao puderam ser fechados foram registrados, nao omitidos.
 
-1. editar apenas arquivos no escopo;
-2. preservar `pkg/` e `internal/` quando a trilha for somente governanca, docs ou onboarding;
-3. nao alterar `automation/ROADMAP.json` nem `automation/PHASE_STATE.json` para representar trilha interativa;
-4. adicionar ou atualizar testes quando comportamento mudar;
-5. atualizar docs quando comportamento operacional ou publico mudar;
-6. registrar gaps que nao puderem ser fechados.
+## 5. O que conferir no report e no gate
 
-No smoke da Fase 26, a implementacao governada foi documental: docs e reports foram atualizados; nenhuma capability de produto foi criada.
+O report da etapa e a fonte de verdade para avanco. Classificacoes permitidas: `PASS`, `PARTIAL`, `FAIL` e `BLOCKED`. O agente so avanca com `classification = PASS` e decisao final autorizando.
 
-## 7. Diagnostico
+Revise:
 
-O diagnostico deve seguir a spec diagnostica da trilha.
+1. o report existe no caminho registrado em `current_request.report_file`;
+2. a etapa do report corresponde a `current_request.current_step`;
+3. `classification` e `decision` existem e sao explicitas;
+4. comandos e testes obrigatorios foram executados ou justificados pela spec de diagnostico;
+5. nenhuma stop condition permanece ativa.
 
-Ele deve registrar:
+Para mudanca documental, o diagnostico tipico inclui validacao JSON dos estados alterados, `go test ./...`, `go test -race ./...` e lints dos arquivos alterados; `make fmt` e OpenAPI podem ser justificados como nao aplicaveis quando nenhum arquivo Go ou HTTP muda.
 
-1. comandos executados;
-2. testes executados;
-3. evidencias coletadas;
-4. skips justificados;
-5. gaps restantes;
-6. classificacao;
-7. decisao final.
+## 6. Bloqueio e retomada
 
-Para mudanca documental, o diagnostico pode incluir validacao JSON, `go test ./...`, `go test -race ./...`, lints dos arquivos alterados e revisao de escopo proibido. `make fmt` e OpenAPI podem ser justificados como nao aplicaveis quando nenhum arquivo Go ou HTTP/OpenAPI mudar.
+Um bloqueio legitimo aparece em tres lugares: em `automation/INTERACTIVE_STATE.json` (`blocked = true` com `block_reason` objetivo), no report ou evidencia da trilha, e na resposta final do agente com a acao humana recomendada.
 
-Quando a solicitacao usar `@kodus/agent-readiness`, aplique `skills/24-agent-readiness-governance/SKILL.md`. O report deve ficar em `docs/reports/agent-readiness/`, cada achado deve ser classificado para o contexto do `{{PROJECT_SLUG}}`, e o resultado deve ser tratado como evidencia auxiliar. O score bruto nao autoriza avanco nem bloqueio sem o report diagnostico da trilha.
+Na retomada, exija que o agente parta dos artefatos versionados — estado, specs da trilha e report do bloqueio — e corrija somente a causa registrada, preservando `retry_count` e historico. Retomada baseada na memoria da conversa nao e aceitavel. O limite e de `2` retries corretivos por etapa; alem disso, a trilha para e espera decisao humana.
 
-## 8. Report E Gate
+Nunca aceite como "solucao" de bloqueio: alterar gate, criterio de aceite, `ROADMAP.json` ou `PHASE_STATE.json`.
 
-O report e a fonte de verdade para avanco.
+## 7. Checklist humano antes de aceitar a conclusao
 
-Classificacoes permitidas:
+1. Pedido inicial tratado como intake, nao como spec aprovada.
+2. Decisao entre `amend` e nova trilha dual-spec registrada.
+3. Spec de construcao e spec de diagnostico lidas e cobrindo a mudanca.
+4. Arquivos alterados dentro do escopo aprovado.
+5. Comandos e testes executados ou justificados.
+6. Report com `classification = PASS` e decisao de conclusao.
+7. `automation/INTERACTIVE_STATE.json` coerente com o report (`completed` exige `PASS`).
+8. Nenhuma mudanca indevida em `automation/ROADMAP.json` ou `automation/PHASE_STATE.json`.
+9. Nenhuma capability de produto criada fora de spec.
+10. Bloqueios e retomadas preservados no historico quando existirem.
+11. Gaps restantes ausentes ou explicitamente registrados.
 
-1. `PASS`;
-2. `PARTIAL`;
-3. `FAIL`;
-4. `BLOCKED`.
+## 8. Artefatos para revisar em PR
 
-O Cursor so pode avancar quando o report declarar `PASS` e a decisao final autorizar a proxima etapa ou a conclusao.
-
-Exemplo de report de trilha: `docs/reports/phase-26-interactive-sdd-autopilot-smoke-report.md`.
-
-Uma pessoa deve conferir:
-
-1. se o report corresponde ao `current_request.report_file`;
-2. se a etapa do report corresponde a `current_request.current_step`;
-3. se `classification` e `decision` existem;
-4. se a decisao autoriza avanco, retry ou conclusao;
-5. se os testes obrigatorios foram executados ou justificados;
-6. se nenhuma stop condition permanece ativa.
-
-## 9. Estado Interativo
-
-`automation/INTERACTIVE_STATE.json` e o estado da trilha interativa.
-
-Ele deve registrar:
-
-1. `mode = "interactive_sdd_autopilot"`;
-2. `status`;
-3. `blocked` e `block_reason`;
-4. request id;
-5. tipo do pedido;
-6. pedido original;
-7. etapa atual;
-8. specs governantes;
-9. spec de construcao;
-10. spec de diagnostico;
-11. report atual;
-12. retry count;
-13. classificacao e decisao mais recentes;
-14. criterios de conclusao;
-15. historico relevante quando houver smoke, bloqueio ou retomada.
-
-Durante revisao humana, `INTERACTIVE_STATE.json` deve bater com o report. Se o estado disser `completed`, o report deve declarar `PASS` e decisao de conclusao. Se o estado disser `blocked`, deve haver motivo objetivo e acao humana recomendada.
-
-## 10. Bloqueio
-
-A trilha deve bloquear quando:
-
-1. faltar spec obrigatoria;
-2. faltar resposta humana para requisito material;
-3. a decisao entre `amend` e nova trilha dual-spec estiver ausente;
-4. teste obrigatorio falhar;
-5. diagnostico obrigatorio nao tiver sido executado;
-6. report estiver ausente ou ambiguo;
-7. classificacao for `PARTIAL`, `FAIL` ou `BLOCKED`;
-8. a correcao exigir escopo proibido;
-9. a correcao exigiria alterar o roadmap fixo para contornar gate;
-10. houver decisao humana de arquitetura pendente.
-
-Ao bloquear, o Cursor deve registrar motivo objetivo e acao humana recomendada em `automation/INTERACTIVE_STATE.json`, no report ou na evidencia da trilha, e na resposta final.
-
-No smoke da Fase 26, o bloqueio controlado aconteceu em `report_review` porque o report da etapa ainda estava ausente ou sem `classification` e `decision`.
-
-## 11. Retomada
-
-A retomada deve partir de artefatos existentes, nao de narrativa da conversa:
-
-1. ler `automation/INTERACTIVE_STATE.json`;
-2. ler a spec de construcao;
-3. ler a spec de diagnostico;
-4. ler report ou evidencia do bloqueio;
-5. corrigir somente a causa do bloqueio;
-6. preservar historico e retry count;
-7. reexecutar diagnostico;
-8. gerar ou atualizar report;
-9. avancar apenas se `classification = PASS` e `decision` autorizar.
-
-O smoke da Fase 26 demonstra esse fluxo registrando bloqueio por report ausente, retomada apos criacao do report da trilha e conclusao com retry count preservado em `1`.
-
-## 12. Conclusao
-
-Uma solicitacao esta concluida quando:
-
-1. todas as etapas necessarias foram executadas;
-2. specs e docs exigidas foram atualizadas;
-3. diagnosticos obrigatorios foram executados;
-4. report final declara `PASS`;
-5. decisao final declara conclusao;
-6. nenhuma stop condition esta ativa;
-7. `automation/INTERACTIVE_STATE.json` registra estado coerente com a conclusao;
-8. gaps restantes estao ausentes ou explicitamente registrados.
-
-No smoke da Fase 26, a conclusao ficou registrada em `automation/INTERACTIVE_STATE.json` com `status = "completed"` e no report de smoke com decisao `SMOKE COMPLETE - READY FOR PHASE 26 AUDIT`.
-
-## 13. Fluxo Completo Bem-Sucedido
-
-Fluxo real usado como referencia:
-
-1. Pedido: adicionar exemplos humanos de intake, ambiguidade, retomada e checklist.
-2. Intake: tipo `docs`, escopo documental, sem mudanca em `pkg/*` ou `internal/*`.
-3. Decisao: `amend` em `Spec 700` e `Spec 701`.
-4. Implementacao: docs, reports e `automation/INTERACTIVE_STATE.json`.
-5. Diagnostico: JSON valido, `go test ./...`, `go test -race ./...` e lints.
-6. Report: `docs/reports/phase-26-interactive-sdd-autopilot-smoke-report.md`.
-7. Gate: `classification = PASS`.
-8. Decisao: `SMOKE COMPLETE - READY FOR PHASE 26 AUDIT`.
-9. Estado: `status = "completed"`.
-
-## 14. Fluxo Bloqueado E Retomado
-
-Fluxo real usado como referencia:
-
-1. A trilha chegou a `report_review`.
-2. O report da etapa ainda estava ausente ou sem `classification` e `decision`.
-3. O gate bloqueou a trilha.
-4. `automation/INTERACTIVE_STATE.json` preservou `retry_count = 1`, classificacao `BLOCKED`, decisao de stop e acao humana recomendada.
-5. A retomada leu estado, specs e evidencia do bloqueio.
-6. A causa foi resolvida com a criacao do report de smoke.
-7. O diagnostico foi reexecutado.
-8. O report passou com `classification = PASS`.
-9. A trilha foi concluida sem alterar `ROADMAP.json`, `PHASE_STATE.json`, gate ou criterio de aceite.
-
-## 15. Checklist Humano
-
-Antes de aceitar a conclusao de uma trilha, revise:
-
-1. pedido inicial e intake normalizado;
-2. decisao entre `amend` e nova trilha dual-spec;
-3. spec de construcao e spec de diagnostico;
-4. arquivos alterados;
-5. comandos e testes executados;
-6. report com `classification` e `decision`;
-7. `automation/INTERACTIVE_STATE.json`;
-8. ausencia de mudancas indevidas em `automation/ROADMAP.json` e `automation/PHASE_STATE.json`;
-9. ausencia de capability de produto fora de spec;
-10. bloqueios e retomadas preservados quando existirem;
-11. gaps restantes explicitamente registrados.
+Quando a trilha virar PR, revise: specs de construcao e diagnostico, `automation/INTERACTIVE_STATE.json`, o report da trilha, docs alteradas e, quando a trilha usar `skills/24-agent-readiness-governance/SKILL.md`, o report de readiness em `docs/reports/agent-readiness/` como evidencia auxiliar — nunca como substituto do gate.

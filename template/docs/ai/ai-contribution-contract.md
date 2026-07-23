@@ -1,7 +1,7 @@
 # AI Contribution Contract
 
 Este contrato define a baseline operacional expandida para contribuicoes assistidas por AI na `{{PROJECT_SLUG}}`.
-Ele complementa `AGENTS.md` e materializa a `Spec 350`, secoes 5.1, 5.2, 5.5 e 7.1-7.5, preservando a baseline recuperada pela `Spec 348`.
+Ele complementa `AGENTS.md` e e aplicado pelo enforcement real do repositorio: `scripts/check-compliance.sh`, o template de PR e o CI.
 
 ## Regras normativas
 
@@ -19,6 +19,7 @@ Ele complementa `AGENTS.md` e materializa a `Spec 350`, secoes 5.1, 5.2, 5.5 e 7
 ## Uso esperado
 
 - Use `docs/ai/task-input-format.md` como formato padrao de entrada.
+- Use `docs/ai/maturity-inventory.md` para localizar a baseline entregue e seus limites, sem tratá-lo como substituto de specs.
 - Use `docs/ai/prompts/` como base de prompt operacional, nao como substituto da leitura das specs.
 - Use `docs/ai/briefs/` para briefs reais e rastreaveis por spec.
 - Use `docs/ai/compliance-exceptions.md` quando alguma exigencia obrigatoria precisar de excecao formal temporaria.

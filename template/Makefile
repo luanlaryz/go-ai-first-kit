@@ -8,7 +8,7 @@ GOFILES := $(shell find . -type f -name '*.go' -not -path './vendor/*')
 .PHONY: setup bootstrap test test-security security-tests vulncheck secrets-check lint fmt fmt-check race coverage vet check-compliance check-pr-body check-file-size
 
 setup:
-	@command -v $(GO) >/dev/null 2>&1 || { echo "go not found; install Go 1.26.3+ from https://go.dev/dl/"; exit 1; }
+	@command -v $(GO) >/dev/null 2>&1 || { echo "go not found; install Go 1.26.4+ from https://go.dev/dl/"; exit 1; }
 	$(GO) mod download
 	$(GO) install honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION)
 

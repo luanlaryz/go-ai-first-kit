@@ -34,12 +34,17 @@ Solicitacoes interativas nao devem alterar `automation/PHASE_STATE.json`.
 A execucao deve seguir esta hierarquia:
 
 1. `AGENTS.md`;
-2. spec de construcao da fase atual;
-3. spec de diagnostico da fase atual;
-4. `automation/ROADMAP.json`;
+2. a entrada da fase atual em `automation/ROADMAP.json`;
+3. spec de construcao apontada por `spec_file`, depois que o arquivo existir;
+4. spec de diagnostico apontada por `diagnosis_spec_file`, depois que o arquivo existir;
 5. `automation/PHASE_STATE.json`;
 6. `automation/STOP_CONDITIONS.md`;
-7. report gerado para a fase atual.
+7. report apontado por `report_file` na entrada atual, depois que ele for gerado.
+
+`automation/ROADMAP.json` e a fonte exclusiva para a configuracao do
+`phase_autopilot`: ordem, identificador, nome, caminhos de specs, caminho de
+report, gate e limite de retries. Nenhuma fase, caminho ou decisao pode ser
+deduzida deste documento por convencao ou por exemplos historicos.
 
 Quando houver conflito entre implementacao e spec aprovada, a spec prevalece.
 
@@ -49,15 +54,27 @@ Quando o report estiver ausente, incompleto ou inconsistente com a fase atual, a
 
 ## 3. Roadmap Governado
 
-O autopilot deve executar exatamente estas fases, nesta ordem:
+O autopilot deve executar somente as entradas de `phases` em
+`automation/ROADMAP.json`, na ordem declarada no arquivo.
 
-1. Fase 20: `memory-adapter-expansion-and-storage-parity`
-2. Fase 21: `agent-invocation-and-conversation-contract-parity`
-3. Fase 22: `workflow-state-persistence-and-resume-parity`
-4. Fase 23: `resumable-streams-and-playground-runtime-parity`
-5. Fase 24: `hosting-integration-and-{{UPSTREAM_NAME_LOWER}}-app-migration-readiness`
+A entrada cujo `id` corresponde a `current_phase` em
+`automation/PHASE_STATE.json` define a fase atual. Cada entrada deve conter:
 
-O autopilot nao pode inventar fases, remover fases, reordenar fases, agrupar fases ou antecipar trabalho de fase futura.
+1. `id`;
+2. `name`;
+3. `spec_file`;
+4. `diagnosis_spec_file`;
+5. `report_file`;
+6. `advance_only_if.classification`;
+7. `advance_only_if.decision`.
+
+Os caminhos de specs de uma entrada futura sao candidatos a criar enquanto os
+arquivos ainda nao existirem. Eles passam a ser leitura obrigatoria somente
+depois de existirem. A implementacao e o diagnostico permanecem bloqueados ate
+que as duas specs da entrada atual existam.
+
+O autopilot nao pode inventar, remover, reordenar, agrupar ou antecipar
+entradas do roadmap.
 
 ## 4. Maquina De Estados
 
@@ -91,7 +108,7 @@ Transicoes permitidas:
 4. `diagnosing` -> `blocked`
 5. `running` -> `blocked`
 6. `completed` -> `pending` da proxima fase
-7. `completed` da Fase 24 -> `finished`
+7. `completed` -> `finished` quando nao houver proxima entrada no roadmap
 
 Qualquer transicao fora dessas deve ser tratada como inconsistencia de estado.
 
@@ -112,16 +129,26 @@ Se a spec existir:
 
 Se a spec nao existir:
 
-1. criar a spec no caminho exato definido em `automation/ROADMAP.json`;
-2. respeitar `AGENTS.md`;
-3. respeitar a fase e o nome definidos no roadmap;
-4. nao criar fase nova;
-5. nao alterar a ordem do roadmap;
-6. nao implementar antes de a spec existir.
+1. tratar o caminho de `spec_file` como candidato a criar para a entrada atual;
+2. criar a spec no caminho exato definido em `automation/ROADMAP.json`, quando a tarefa autorizar a criacao;
+3. registrar o bloqueio se a criacao nao estiver autorizada ou nao puder completar a dual-spec;
+4. nao tratar a spec ausente como leitura ja realizada;
+5. nao implementar antes de a spec existir.
+
+Ao criar a spec candidata:
+
+1. respeitar `AGENTS.md`;
+2. respeitar o identificador e o nome definidos no roadmap;
+3. nao criar entrada nova;
+4. nao alterar a ordem do roadmap.
 
 ### 5.2 Implementar A Spec Da Fase
 
-A implementacao deve ficar restrita ao escopo da fase atual.
+A implementacao deve ficar restrita ao escopo da entrada atual.
+O autopilot somente pode iniciar esta etapa depois que `spec_file` e
+`diagnosis_spec_file` existirem e tiverem sido lidos.
+Se a spec de diagnostico ainda estiver ausente, concluir a etapa 5.3 antes de
+iniciar qualquer implementacao.
 
 O autopilot deve:
 
@@ -131,26 +158,30 @@ O autopilot deve:
 4. atualizar documentacao operacional ou publica quando houver impacto observavel;
 5. manter `pkg/*` livre de dependencia em `internal/*`, exceto pela ponte publica permitida em `pkg/app`;
 6. manter rastreabilidade entre spec, codigo, testes e docs;
-7. nao abrir capability nova fora da fase atual;
+7. nao abrir capability nova fora da entrada atual;
 8. nao mascarar gap com documentacao narrativa.
 
 ### 5.3 Criar Ou Validar A Spec De Diagnostico
 
-O autopilot deve localizar a spec de diagnostico definida em `automation/ROADMAP.json`.
+O autopilot deve localizar a spec de diagnostico definida em
+`automation/ROADMAP.json`.
 
 Se a spec existir:
 
 1. ler a spec completa;
 2. identificar sinais observaveis, modos de falha, comandos, evidencias esperadas e criterio de confirmacao;
-3. verificar que a auditoria consegue classificar a fase como `PASS`, `PARTIAL`, `FAIL` ou `BLOCKED`;
+3. verificar que a auditoria consegue classificar a fase conforme o gate da entrada;
 4. verificar que a auditoria exige decisao final explicita.
 
 Se a spec nao existir:
 
-1. criar a spec no caminho exato definido em `automation/ROADMAP.json`;
-2. vincular a spec de diagnostico a fase atual;
-3. incluir sinais observaveis, sintomas de falha, hipoteses, metricas, logs, traces, health checks quando aplicavel, comandos de verificacao, troubleshooting e criterio de confirmacao;
-4. nao executar diagnostico antes de a spec existir.
+1. tratar o caminho de `diagnosis_spec_file` como candidato a criar para a entrada atual;
+2. respeitar `AGENTS.md`;
+3. criar a spec no caminho exato definido em `automation/ROADMAP.json`, quando a tarefa autorizar a criacao;
+4. vincular a spec de diagnostico a entrada atual;
+5. incluir sinais observaveis, sintomas de falha, hipoteses, metricas, logs, traces, health checks quando aplicavel, comandos de verificacao, troubleshooting e criterio de confirmacao;
+6. registrar bloqueio se a spec nao puder ser criada;
+7. nao executar diagnostico antes de a spec existir.
 
 ### 5.4 Executar O Diagnostico
 
@@ -172,13 +203,8 @@ Falha em qualquer validacao obrigatoria e bloqueio, exceto quando a spec de diag
 
 ### 5.5 Localizar O Report Gerado
 
-O autopilot deve localizar o report no caminho exato da fase atual:
-
-1. Fase 20: `docs/reports/phase-20-memory-adapter-expansion-and-storage-parity-report.md`
-2. Fase 21: `docs/reports/phase-21-agent-invocation-and-conversation-contract-parity-report.md`
-3. Fase 22: `docs/reports/phase-22-workflow-state-persistence-and-resume-parity-report.md`
-4. Fase 23: `docs/reports/phase-23-resumable-streams-and-playground-runtime-parity-report.md`
-5. Fase 24: `docs/reports/phase-24-hosting-integration-and-{{UPSTREAM_NAME_LOWER}}-app-migration-readiness-report.md`
+O autopilot deve localizar o report no caminho exato de `report_file` da
+entrada atual em `automation/ROADMAP.json`.
 
 Report ausente e stop condition.
 
@@ -197,29 +223,9 @@ A classificacao deve ser uma destas:
 3. `FAIL`
 4. `BLOCKED`
 
-A decisao deve ser exatamente a decisao esperada da fase atual.
-
-Gates esperados:
-
-1. Fase 20:
-   - `classification = PASS`
-   - `decision = READY FOR PHASE 21`
-
-2. Fase 21:
-   - `classification = PASS`
-   - `decision = READY FOR PHASE 22`
-
-3. Fase 22:
-   - `classification = PASS`
-   - `decision = READY FOR PHASE 23`
-
-4. Fase 23:
-   - `classification = PASS`
-   - `decision = READY FOR PHASE 24`
-
-5. Fase 24:
-   - `classification = PASS`
-   - `decision = READY FOR MIGRATION EXECUTION`
+A classificacao e a decisao devem corresponder exatamente a
+`advance_only_if.classification` e `advance_only_if.decision` da entrada atual
+em `automation/ROADMAP.json`.
 
 Decisao ausente e stop condition.
 
@@ -249,8 +255,8 @@ Quando a fase passa no gate:
 4. `retry_count = 0`;
 5. `blocked = false`;
 6. `block_reason = ""`;
-7. se houver proxima fase, `current_phase` recebe a proxima fase e `status = "pending"`;
-8. se a fase concluida for a Fase 24, `current_phase = 24` e `status = "finished"`.
+7. se houver proxima entrada na ordem de `phases`, `current_phase` recebe o `id` dela e `status = "pending"`;
+8. se nao houver proxima entrada, `current_phase` permanece no `id` concluido e `status = "finished"`.
 
 Quando a fase bloqueia:
 
@@ -268,8 +274,8 @@ O autopilot so pode avancar quando todas as condicoes forem verdadeiras:
 
 1. report existe no caminho esperado;
 2. report corresponde a fase atual;
-3. `classification == PASS`;
-4. `decision` e exatamente a decisao esperada para a fase atual;
+3. `classification` e exatamente `advance_only_if.classification` da entrada atual;
+4. `decision` e exatamente `advance_only_if.decision` da entrada atual;
 5. `go test ./...` passou;
 6. `go test -race ./...` passou;
 7. validacao OpenAPI passou quando aplicavel;
@@ -299,7 +305,8 @@ O autopilot tambem nao deve avancar por inferencia baseada em testes verdes se o
 
 ## 7. Retry Policy
 
-Cada fase permite no maximo `2` retries corretivos.
+Cada fase permite no maximo o valor de `max_retries_per_phase` definido em
+`automation/ROADMAP.json`.
 
 Retry corretivo significa uma tentativa de corrigir falhas identificadas durante implementacao, testes, diagnostico ou leitura do report da fase atual.
 
@@ -312,7 +319,7 @@ Politica:
 5. reler o gate;
 6. avancar somente se o gate for satisfeito.
 
-Se `retry_count` exceder `2`, o autopilot deve parar.
+Se `retry_count` exceder `max_retries_per_phase`, o autopilot deve parar.
 
 Ao parar por retries excedidos, deve produzir um relatorio curto de bloqueio contendo:
 
@@ -394,15 +401,14 @@ Evidencias nao aceitas como conclusao de fase:
 
 ## 11. Encerramento Da Automacao
 
-O autopilot termina com sucesso somente quando a Fase 24 tiver:
+O autopilot termina com sucesso somente quando a ultima entrada, conforme a
+ordem de `phases` em `automation/ROADMAP.json`, tiver:
 
-1. report no caminho `docs/reports/phase-24-hosting-integration-and-{{UPSTREAM_NAME_LOWER}}-app-migration-readiness-report.md`;
-2. `classification = PASS`;
-3. `decision = READY FOR MIGRATION EXECUTION`;
-4. `go test ./...` verde;
-5. `go test -race ./...` verde;
-6. nenhuma stop condition ativa;
-7. `automation/PHASE_STATE.json` com `status = "finished"`;
-8. `last_completed_phase = 24`.
+1. report no caminho definido em `report_file`;
+2. classificacao e decisao exatamente iguais ao objeto `advance_only_if`;
+3. validacoes obrigatorias da spec de diagnostico aprovadas;
+4. nenhuma stop condition ativa;
+5. `automation/PHASE_STATE.json` com `status = "finished"`;
+6. `last_completed_phase` igual ao `id` da ultima entrada.
 
 Qualquer outra parada deve ser tratada como bloqueio operacional.

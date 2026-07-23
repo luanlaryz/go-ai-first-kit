@@ -69,3 +69,75 @@ func TestAIFirstRewardsBacklog(t *testing.T) {
 		t.Fatal("did not expect backlog finding when backlog present")
 	}
 }
+
+func TestAIFirstFlagsMissingMaturityInventory(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "AGENTS.md", "# AGENTS\nSpec Driven Development\n")
+
+	result := aiFirstChecker{}.Check(newTestInventory(t, root))
+
+	if !hasFinding(result.Findings, "Inventário de maturidade AI ausente ou incompleto") {
+		t.Fatalf("expected maturity inventory finding, got %+v", result.Findings)
+	}
+}
+
+func TestAIFirstRewardsMaturityInventory(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "AGENTS.md", "# AGENTS\nSpec Driven Development\n")
+
+	without := aiFirstChecker{}.Check(newTestInventory(t, root))
+
+	writeTestFile(t, root, maturityInventoryPath, `# Inventário de Maturidade AI
+
+## Baseline entregue
+
+## Evidência a produzir
+
+## Gaps e limites
+`)
+
+	with := aiFirstChecker{}.Check(newTestInventory(t, root))
+
+	if with.QualityScore <= without.QualityScore {
+		t.Fatalf("expected inventory to improve quality: without=%d with=%d", without.QualityScore, with.QualityScore)
+	}
+	if hasFinding(with.Findings, "Inventário de maturidade AI ausente ou incompleto") {
+		t.Fatal("did not expect maturity inventory finding when inventory is complete")
+	}
+}
+
+func TestAIFirstFlagsMissingCapabilitiesCatalog(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "AGENTS.md", "# AGENTS\nSpec Driven Development\n")
+
+	result := aiFirstChecker{}.Check(newTestInventory(t, root))
+
+	if !hasFinding(result.Findings, "Catálogo de capacidades ausente ou incompleto") {
+		t.Fatalf("expected capabilities catalog finding, got %+v", result.Findings)
+	}
+}
+
+func TestAIFirstRewardsCapabilitiesCatalog(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "AGENTS.md", "# AGENTS\nSpec Driven Development\n")
+
+	without := aiFirstChecker{}.Check(newTestInventory(t, root))
+
+	writeTestFile(t, root, capabilitiesCatalogPath, `# Catálogo de capacidades — My App
+
+## Como ler este catálogo
+
+## Capacidades
+
+## Fora de escopo
+`)
+
+	with := aiFirstChecker{}.Check(newTestInventory(t, root))
+
+	if with.QualityScore <= without.QualityScore {
+		t.Fatalf("expected catalog to improve quality: without=%d with=%d", without.QualityScore, with.QualityScore)
+	}
+	if hasFinding(with.Findings, "Catálogo de capacidades ausente ou incompleto") {
+		t.Fatal("did not expect capabilities catalog finding when catalog is complete")
+	}
+}

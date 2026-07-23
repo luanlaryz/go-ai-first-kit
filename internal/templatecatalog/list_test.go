@@ -22,7 +22,7 @@ func TestListDefaultContainsKeyEntries(t *testing.T) {
 	for _, e := range inv.Entries {
 		byPath[e.Path] = e
 	}
-	for _, want := range []string{"AGENTS.md", "README.md", "go.mod.tmpl", "docs", "skills"} {
+	for _, want := range []string{"AGENTS.md", "README.md", "go.mod.tmpl", "docs", "docs/README.md", "docs/ai/maturity-inventory.md", "docs/ai/capabilities.md", "docs/journeys", "docs/journeys/README.md", "skills"} {
 		if _, ok := byPath[want]; !ok {
 			t.Errorf("expected entry %q in inventory", want)
 		}

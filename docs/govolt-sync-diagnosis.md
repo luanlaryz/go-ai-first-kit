@@ -1,10 +1,10 @@
 # Diagnóstico de sincronização govolt → go-ai-first-kit
 
-Fonte upstream: `github.com/inventa-shop/govolt` (default branch `main`, último push observado 2026-05-29).
-Baseline do kit: extraído do govolt no commit `4085345` (`chore: bootstrap go-ai-first-kit extracted from govolt`).
-Método: comparação evidence-first via árvore (`gh api repos/inventa-shop/govolt/git/trees/main?recursive=1`) e conteúdo bruto (`gh api .../contents/<path> -H "Accept: application/vnd.github.raw"`) contra `template/` e `internal/diagnose`.
+Fonte upstream atual: `github.com/inventa-shop/govolt`, release `v1.2.0` (`95fcb803518b`).
+Baseline local: `4085345` é o commit de bootstrap do próprio kit, não um SHA do govolt. A rodada anterior usa `v1.0.0` (`8242c0ef`) apenas como proxy inferido.
+Método: comparação evidence-first de artefatos via árvore e conteúdo bruto da API GitHub contra `template/` e `internal/diagnose`; os repositórios não compartilham ancestralidade Git.
 
-Este relatório é a fonte de verdade do que foi trazido para o kit nesta rodada e do que foi deliberadamente deixado de fora.
+Este relatório registra as decisões de portabilidade por rodada. O pin operacional da rodada atual está em `docs/govolt-sync-baseline.json`.
 
 ## 1. Resumo executivo
 
@@ -95,3 +95,42 @@ Para os novos sinais refletirem no diagnóstico (e não só no template), sem qu
 
 - GitHub Pages do govolt não entra no kit.
 - Conteúdo de domínio do govolt (LiteLLM, VoltAgent, ADRs 0010-0019, specs e itens BLG reais) não entra no template; apenas as estruturas/processos parametrizados entram.
+
+## 8. Atualização v1.2.0
+
+### Fonte e janela avaliada
+
+- Origem aplicada: release `v1.2.0`, commit `95fcb803518b`.
+- Janela anterior: `v1.0.0`, commit `8242c0ef`, registrada como proxy inferido porque a sync inicial não fixou um SHA upstream.
+- O commit posterior `5e297a17765c` apenas fecha itens já entregues na release e não muda a baseline genérica do template.
+
+### Mudanças classificadas
+
+- PR #51 (`727b1136f660`) adicionou o inventário de maturidade AI e publicação
+  estática em Pages. O kit adapta somente o inventário para
+  `template/docs/ai/maturity-inventory.md`, sem contagens, reports, URLs ou
+  alegações operacionais do govolt.
+- PR #52 (`b8ebdbd923b4`) elevou o piso de Go para 1.26.4 por segurança. O kit
+  propaga somente a diretiva de toolchain e sua mensagem de pré-requisito.
+- PRs #55 e #60, ADRs 0020–0022, BLG-0018–0020, adapters de provider,
+  multimodalidade e política de timeout são capacidade de produto e continuam
+  fora do template.
+- HTML gerado, CDN, `docs-html`, `check-pages-site` e workflow Pages continuam
+  excluídos; eles resolvem distribuição de documentação, não governança
+  offline do starter.
+
+### Correções de verdade documental
+
+Antes de usar o inventário como evidência, o template remove referências
+históricas a specs, reports e briefs do govolt que não são renderizados. Paths
+normativos em `AGENTS.md`, automations e skills passam a apontar somente para
+arquivos existentes ou são descritos explicitamente como specs futuras a criar.
+
+### Regra para próximas sincronizações
+
+1. Fixar uma release ou SHA do govolt antes da análise.
+2. Registrar o pin e as exclusões em `docs/govolt-sync-baseline.json`.
+3. Classificar cada artefato como parametrizar, manter como divergência ou
+   descartar por domínio.
+4. Verificar que toda afirmação e link acrescentados ao template apontam para
+   artefato realmente renderizado.

@@ -1,6 +1,8 @@
 # Routing and examples for {{PROJECT_SLUG}}
 
-## Dominios canonicos
+Os dominios e exemplos abaixo sao ilustrativos: eles mostram como rotear pedidos vagos para dominios de spec, mas nenhuma dessas specs existe em `specs/` ate ser criada por uma trilha dual-spec. Trate os numeros como convencao de exemplo, nao como arquivos existentes.
+
+## Dominios de exemplo
 - `030-agent`: API publica do agent, execucao sincrona/streaming, tools, memory, guardrails, hooks.
 - `050-memory`: semantica de memoria conversacional, `SessionID`, `Store`, persistencia, isolamento por sessao.
 - `070-workflows`: builder, workflow runnable, state, retry, branching, hooks, history.

@@ -24,14 +24,19 @@ Este modo e aditivo ao `phase_autopilot`. Ele nao substitui o roadmap fixo.
 A execucao interativa deve seguir esta hierarquia:
 
 1. `AGENTS.md`;
-2. `specs/680-phase-25-interactive-sdd-autopilot-foundation.md`;
-3. `specs/681-phase-25-interactive-sdd-autopilot-foundation-diagnosis.md`;
-4. `skills/23-{{PROJECT_SLUG}}-sdd-autopilot/SKILL.md`;
-5. spec de construcao da trilha atual;
-6. spec de diagnostico da trilha atual;
+2. `skills/23-{{PROJECT_SLUG}}-sdd-autopilot/SKILL.md`;
+3. spec de construcao aprovada da trilha atual, quando existir;
+4. spec de diagnostico aprovada da trilha atual, quando existir;
+5. `automation/INTERACTIVE_AUTOPILOT.md`;
+6. `automation/INTERACTIVE_RUNBOOK.md`;
 7. `automation/INTERACTIVE_STATE.json`;
 8. `automation/STOP_CONDITIONS.md`;
-9. report da etapa atual.
+9. report da etapa atual, quando tiver sido gerado.
+
+Uma spec ainda inexistente e apenas candidata durante intake e decisao de spec.
+Ela so passa a ser leitura obrigatoria depois de criada ou aprovada. Nenhuma
+implementacao ou diagnostico de comportamento novo pode iniciar sem a dual-spec
+existente.
 
 Quando houver conflito entre pedido inicial e spec versionada, a spec versionada prevalece.
 

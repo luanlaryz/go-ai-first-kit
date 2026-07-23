@@ -14,11 +14,9 @@ Antes de qualquer edicao, leia:
 2. `skills/00-skill-index/SKILL.md`;
 3. `skills/05-{{PROJECT_SLUG}}-spec-architect/SKILL.md`;
 4. `skills/23-{{PROJECT_SLUG}}-sdd-autopilot/SKILL.md`;
-5. `specs/680-phase-25-interactive-sdd-autopilot-foundation.md`;
-6. `specs/681-phase-25-interactive-sdd-autopilot-foundation-diagnosis.md`;
-7. `automation/INTERACTIVE_AUTOPILOT.md`;
-8. `automation/INTERACTIVE_STATE.json`;
-9. `automation/STOP_CONDITIONS.md`.
+5. `automation/INTERACTIVE_AUTOPILOT.md`;
+6. `automation/INTERACTIVE_STATE.json`;
+7. `automation/STOP_CONDITIONS.md`.
 
 Depois identifique:
 
@@ -31,6 +29,11 @@ Depois identifique:
 7. report esperado;
 8. `retry_count`;
 9. estado de `blocked`.
+
+Leia uma spec de construcao ou diagnostico da trilha somente se ela existir.
+Durante intake, caminhos de specs ainda inexistentes sao candidatos a criar,
+nunca arquivos obrigatorios que ja devam ser lidos. Antes de implementar
+comportamento novo, complete e leia a dual-spec.
 
 ## 3. Intake
 
@@ -142,8 +145,6 @@ Leia primeiro:
 - skills/00-skill-index/SKILL.md
 - skills/05-{{PROJECT_SLUG}}-spec-architect/SKILL.md
 - skills/23-{{PROJECT_SLUG}}-sdd-autopilot/SKILL.md
-- specs/680-phase-25-interactive-sdd-autopilot-foundation.md
-- specs/681-phase-25-interactive-sdd-autopilot-foundation-diagnosis.md
 - automation/INTERACTIVE_AUTOPILOT.md
 - automation/INTERACTIVE_STATE.json
 - automation/STOP_CONDITIONS.md
@@ -151,8 +152,8 @@ Leia primeiro:
 Comece por intake.
 Levante requisitos.
 Decida entre amendar spec existente ou abrir nova trilha dual-spec.
-Crie ou refine spec de construcao.
-Crie spec de diagnostico.
+Leia specs existentes somente quando forem relevantes e estiverem presentes.
+Trate specs novas como candidatas a criar; crie ou refine a dual-spec antes de implementar.
 Implemente somente depois das specs suficientes.
 Execute diagnostico.
 Leia o report.
