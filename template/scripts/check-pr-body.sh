@@ -110,7 +110,10 @@ fi
 
 required_headings=(
 	"## Objetivo"
+	"## Backlog"
 	"## Specs lidas"
+	"## Autopilot"
+	"## Regressao"
 	"## Skills aplicadas"
 	"## Arquivos alterados"
 	"## Impacto em docs e superficie publica"
@@ -131,6 +134,9 @@ forbidden_literals=(
 	"- [ ] spec(s) governante(s) citadas abaixo"
 	"- \`specs/...\`"
 	"- \`skills/...\`"
+	"- \`BLG-NNNN\` (\`docs/backlog/Backlog.md\`), com \`Status\` em \`ready_for_implementation\`, \`in_progress\` ou \`done\`"
+	"- Plano: \`.cursor/plans/<id>.plan.md\`"
+	"- \`BLG-NNNN\` + cenario alvo em \`test/<pacote>::<cenario>\`"
 	"- liste os arquivos principais alterados neste PR"
 	"- \`none\`, ou descreva o impacto relevante quando existir"
 	"- liste comandos executados alem dos checks padrao, quando houver"

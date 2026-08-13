@@ -6,6 +6,34 @@
         "command": ".cursor/hooks/gofmt-after-edit.sh",
         "matcher": "\\.go$"
       }
+    ],
+    "beforeShellExecution": [
+      {
+        "command": ".cursor/hooks/agent-cloud-access-guard.sh",
+        "matcher": "aws|kubectl",
+        "failClosed": true,
+        "timeout": 10
+      },
+      {
+        "command": ".cursor/hooks/governed-change-guard.sh",
+        "matcher": "git commit|git push|gh pr create",
+        "failClosed": true,
+        "timeout": 10
+      },
+      {
+        "command": ".cursor/hooks/parallel-collision-guard.sh",
+        "matcher": "git push|gh pr create",
+        "failClosed": true,
+        "timeout": 60
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": ".cursor/hooks/env-read-guard.sh",
+        "matcher": "^Read$",
+        "failClosed": true,
+        "timeout": 10
+      }
     ]
   }
 }

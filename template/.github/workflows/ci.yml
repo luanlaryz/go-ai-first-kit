@@ -2,6 +2,9 @@ name: ci
 
 on:
   pull_request:
+    # `edited` matters: the governed-change gate reads the PR body, so editing the
+    # body must re-run the gate instead of leaving a stale verdict.
+    types: [opened, synchronize, reopened, edited]
   push:
 
 jobs:
@@ -50,3 +53,38 @@ jobs:
 
       - name: Race
         run: make race
+
+  governance:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Full history: the governance gates diff against the base ref, which a
+      # shallow clone cannot resolve.
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve base ref
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --no-tags origin "${{ github.base_ref }}"
+          echo "BASE_REF=origin/${{ github.base_ref }}" >> "$GITHUB_ENV"
+
+      - name: Agent hooks wiring
+        run: make check-agent-hooks
+
+      - name: Hook selftests
+        run: make hook-selftests
+
+      - name: Guardrails
+        run: make guardrails
+
+      - name: Plan reviews
+        run: make verify-plan-reviews
+
+      - name: Governed change
+        if: github.event_name == 'pull_request'
+        run: make check-governed-change
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

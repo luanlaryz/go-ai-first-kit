@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "downstream": {
+    "repository": "https://github.com/inventa-shop/sac-agents",
+    "relationship": "projeto gerado a partir deste kit; sincronização é downstream -> kit",
+    "applied_ref": "origin/main",
+    "applied_sha": "d5b89b19e718",
+    "applied_at": "2026-08-13"
+  },
+  "comparison_method": "leitura de artefatos via `git show origin/main:<path>` contra `template/`; o checkout local do sac-agents estava em branch de feature atrasada e não é fonte válida",
+  "ported_layers": [
+    "hooks de segurança de credencial (cloud access, leitura de .env) com gate de wiring",
+    "governança de planos (dual-model plan review, plan review autopilot)",
+    "governed change workflow (trio backlog + dual-spec + plano revisado)",
+    "coordenação de sessões paralelas (reserva tardia de IDs, gate de colisão)",
+    "gates de qualidade de design Go, observabilidade, fronteiras e pacote"
+  ],
+  "intentional_exclusions": [
+    "runtime de agentes proprietário do sac-agents e sua skill de integração",
+    "padrões de admin frontend acoplados ao portal interno da organização",
+    "skill de migração de aplicação legada específica",
+    "eixo de resolução de intenção por domínio (lógica de atendimento ao cliente)",
+    "backlog um-arquivo-por-item e seus geradores; o kit mantém backlog single-file",
+    "gates de CI acoplados a artefatos inexistentes no kit (admin UI, testes de carga k6, harness de paridade)"
+  ],
+  "known_limitations": [
+    "o kit mantém `docs/backlog/Backlog.md` em arquivo único, mais sujeito a conflito de merge entre sessões paralelas que o modelo um-arquivo-por-item do downstream; mitigação documentada na skill 31"
+  ]
+}

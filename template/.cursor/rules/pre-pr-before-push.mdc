@@ -1,0 +1,18 @@
+---
+description: Exige make pre-pr com exit 0 antes de git push ou criacao de PR
+alwaysApply: true
+---
+
+# Pre-PR gate (mandatory)
+
+- **Proibido** `git push` ou `gh pr create` sem `make pre-pr` com exit 0 na branch atual.
+- Checks parciais (`make test`, `make lint`, um subconjunto de `make guardrails`) **nao substituem**
+  `make pre-pr`. O valor do alvo agregado e justamente nao deixar escolher quais gates rodar.
+- Ao abrir PR, preencha `## Comandos executados` e `## Testes executados` com a saida de `make pre-pr`.
+- Se `pre-pr` falhar: corrija, re-rode, so entao push. Nao empurre com falha conhecida prometendo
+  corrigir no proximo commit.
+- `make pre-pr PR_BODY=<arquivo>` valida tambem o corpo do PR. Sem `PR_BODY`, o gate de governed change
+  resolve o corpo do PR aberto da branch via `gh` (fail-closed).
+- `make pre-pr` deve ser mantido em sincronia com o CI: gate que roda no CI e nao roda localmente
+  transforma o PR em unico ponto de descoberta de falha.
+- Aplique `skills/15-devx-ci-precommit-changelog/SKILL.md`.

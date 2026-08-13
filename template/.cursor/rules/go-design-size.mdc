@@ -1,0 +1,23 @@
+---
+description: Limites de tamanho de arquivo, funcao e port em Go, com allowlists que expiram
+globs: "**/*.go"
+alwaysApply: false
+---
+
+# Go design size
+
+- Arquivo: alvo 500 linhas, limite 800. Funcao: alvo 40 linhas, limite 80. Acima do limite, reprova.
+- Port (interface consumida por caso de uso): 1 a 3 metodos. Acima de 3 e aviso; acima de 5 reprova.
+  Port grande normalmente esconde duas responsabilidades - prefira dividir a pedir excecao.
+- Erro de auditoria, persistencia, fila ou IO nao pode ser descartado com `_ =`. Se for realmente
+  best-effort, marque com comentario `// best-effort:` explicando a consequencia, registre log ou
+  metrica, e adicione entrada na allowlist.
+- Excecoes vivem em `.guardrails/*.yaml` e exigem `path`, `rule`, `justification`, `owner`,
+  `expires_at` e `ref` (mais `symbol` nos gates por simbolo).
+- Entrada expirada **reprova** o gate. Divida tecnica aqui tem prazo, nao permanencia. Renovar exige
+  justificativa nova, nao mudar a data.
+- Apagar ou esvaziar uma allowlist nao passa no gate: arquivo ausente ou malformado e erro duro.
+- Gates executaveis: `make check-file-size`, `make check-function-size`, `make check-port-size`,
+  `make check-ignored-errors` (agregados em `make guardrails`).
+- Nao suba o limite para acomodar codigo novo. O limite existe para forcar a decisao de design que
+  esta sendo evitada.

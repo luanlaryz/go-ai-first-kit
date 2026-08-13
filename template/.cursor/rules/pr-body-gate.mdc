@@ -1,0 +1,26 @@
+---
+description: Valida o corpo do PR com o gate executavel antes de gh pr create/edit
+alwaysApply: true
+---
+
+# PR body gate
+
+- Proibido `gh pr create` ou `gh pr edit --body*` sem antes validar o body-file com
+  `make pre-pr PR_BODY=<arquivo>` (exit 0) na branch atual.
+- O corpo do PR e sempre autorado em arquivo no workspace (ex.: `.pr-body-<topico>.md`) e passado via
+  `--body-file`; nunca inline (`--body`) nem editado apenas na UI. Corpo inline nao e revisavel nem
+  reproduzivel.
+- Secoes obrigatorias (headers `## ` reais) estao em `.github/PULL_REQUEST_TEMPLATE.md`. Mudanca em
+  escopo governado exige tambem `## Backlog`, `## Autopilot` e `## Regressao`.
+- Prefira `scripts/create-pr-from-template.sh --body-file <arquivo>`, que valida o corpo antes de criar
+  o PR.
+- Apos editar o corpo de um PR existente, rode `make pre-pr PR_BODY=<arquivo>` de novo; o CI tambem
+  re-roda no evento `edited`.
+- Gates executaveis: `scripts/check-pr-body.sh` (secoes e placeholders) e
+  `scripts/check-governed-change.sh` (trio do escopo governado).
+- Em CI `pull_request`, se o payload do evento estiver stale ou vazio, o gate re-le o corpo vivo por
+  `pull_request.number` (`scripts/resolve-pr-body-by-number.sh`). Nao reutilize
+  `resolve-open-pr-body.sh`, que depende da branch e falha com HEAD detached.
+- PRs de atualizacao automatica de dependencia sao excecao formal ao corpo completo do template quando
+  registrados em `docs/ai/compliance-exceptions.md`; bumps que toquem escopo governado ainda exigem o
+  trio completo.

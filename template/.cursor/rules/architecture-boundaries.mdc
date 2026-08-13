@@ -1,0 +1,20 @@
+---
+description: Fronteiras hexagonais - dominio puro, aplicacao sem infra, SDKs so na borda, pkg livre de internal
+alwaysApply: true
+---
+
+# Architecture boundaries
+
+- `internal/domain` importa **somente** stdlib e o proprio dominio. Nenhum SDK, framework, driver ou
+  telemetria concreta.
+- `internal/application` nao importa adapters, frameworks HTTP, drivers, SDKs de vendor nem telemetria
+  concreta. Telemetria chega por port, injetada na composition root.
+- SDKs externos aparecem apenas em adapters ou na composition root (`internal/bootstrap`, `cmd/**`).
+  Um SDK vazando para o core transforma escolha de fornecedor em decisao arquitetural.
+- `pkg/**` nao depende de `internal/**`, exceto pela ponte publica declarada em `pkg/app`. Tipo
+  nao exportado nunca aparece em assinatura exportada, erro publico ou exemplo.
+- DTO de sistema externo fica no adapter. O core conhece o contrato canonico, nao o formato do vendor.
+- Wiring e composicao ficam na composition root, nao espalhados por construtores de dominio.
+- Gate executavel: `make check-architecture-boundaries` (agregado em `make guardrails`). Cada raiz e
+  opcional, entao o gate acompanha o crescimento do projeto em vez de exigir a arvore completa.
+- Aplique `skills/01-hexagonal-architecture/SKILL.md` e `skills/17-solid-go-ports/SKILL.md`.

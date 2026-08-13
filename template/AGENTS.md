@@ -22,6 +22,8 @@
 - `automation/AUTOPILOT.md`, `automation/RUNBOOK.md`, `automation/ROADMAP.json` e `automation/PHASE_STATE.json` governam o modo `phase_autopilot`.
 - `automation/INTERACTIVE_AUTOPILOT.md`, `automation/INTERACTIVE_RUNBOOK.md` e `automation/INTERACTIVE_STATE.json` governam trilhas interativas de feature request.
 - `docs/backlog/Backlog.md` e o backlog canonico para itens governados; fontes historicas em `docs/backlog/**` nao viram itens implementaveis sem triagem pela skill `skills/26-backlog-item-intake/SKILL.md`.
+- `.cursor/rules/**` sao guardrails normativos aplicados pelo agente, e `.cursor/hooks/**` sao controles executaveis no runtime do editor; nenhum dos dois substitui spec, e enfraquecer um deles (remover entrada, tirar `failClosed`) reprova `make guardrails`.
+- `automation/PLAN_REVIEWS/**` guarda os vereditos de review de plano; `.guardrails/*.yaml` guarda excecoes de gate com prazo obrigatorio.
 - `docs/decisions/` (ADRs) registra decisoes de arquitetura e governanca; `docs/release-versioning-policy.md`, `docs/release-notes-policy.md` e `docs/release-checklist.md` governam versionamento, changelog e release notes alinhados a `skills/22-release-versioning-governance/SKILL.md`.
 - `docs/README.md`, `docs/ai/capabilities.md` e `docs/journeys/` sao superficies de navegacao e descoberta; elas nao substituem as specs nem este documento como fonte normativa.
 - Se houver conflito entre implementacao existente e spec aprovada, a spec prevalece.
@@ -48,7 +50,12 @@
 - Para planejamento de fases SDD, geracao de prompts de autopilot, specs de construcao e diagnostico, reconciliacao, readiness/release gates ou qualquer continuidade ultra-rigida evidence-first, usar `skills/25-{{PROJECT_SLUG}}-ultra-rigid-sdd/SKILL.md`.
 - Em trilhas interativas, o report da etapa e a fonte de verdade para avanco; testes verdes ou narrativa nao satisfazem gate.
 - Parar imediatamente quando uma stop condition de `automation/STOP_CONDITIONS.md` ocorrer.
+- Para mudanca em escopo governado (`pkg/**`, `internal/**`, `api/**`, `migrations/**`), aplicar `skills/29-governed-change-workflow/SKILL.md`: item `BLG-NNNN` no backlog, par dual-spec e plano com review aprovado antes do PR. O gate executavel e `scripts/check-governed-change.sh`.
+- Nao executar plano em `.cursor/plans/**` sem review valido: `make verify-plan-reviews` precisa passar, com hash do corpo do plano casando e TTL vigente (`skills/27-dual-model-plan-review/SKILL.md`).
+- Assumir sessoes paralelas por padrao: reservar `BLG-NNNN`, `specs/NNN` e `migrations/NNNN` no ultimo momento antes do commit e aplicar `skills/31-parallel-session-coordination/SKILL.md`. Force push para resolver colisao e proibido.
 - Antes de commitar codigo Go, rodar `make fmt` para garantir formatacao `gofmt`. O CI rejeita PRs com arquivos fora do padrao gofmt.
+- Antes de `git push` ou `gh pr create`, rodar `make pre-pr` com exit 0. Checks parciais nao substituem o alvo agregado.
+- Acesso a nuvem e credenciais segue `.cursor/rules/agent-cloud-access.mdc` e `docs/runbooks/agent-cloud-access.md`: alvo explicito em `aws`/`kubectl`, nenhuma mutacao em producao, e valor de segredo nunca copiado para artefato.
 - Ao abrir PR, usar `.github/PULL_REQUEST_TEMPLATE.md` como corpo base obrigatorio.
 - Preferir `scripts/create-pr-from-template.sh` em vez de `gh pr create` direto para reduzir drift no corpo do PR.
 - Se um PR for criado sem todas as secoes obrigatorias do template, o agente deve corrigi-lo antes de encerrar a tarefa.
@@ -177,3 +184,8 @@
 - Governança de diagnósticos `agent-readiness`: [`skills/24-agent-readiness-governance/SKILL.md`](skills/24-agent-readiness-governance/SKILL.md).
 - SDD ultra-rígido / prompts / fases / gates evidence-first: [`skills/25-{{PROJECT_SLUG}}-ultra-rigid-sdd/SKILL.md`](skills/25-{{PROJECT_SLUG}}-ultra-rigid-sdd/SKILL.md).
 - Backlog governado (intake, triagem, classificação, prompts autopilot): [`skills/26-backlog-item-intake/SKILL.md`](skills/26-backlog-item-intake/SKILL.md).
+- Gate de review de plano (veredito registrado, hash, TTL): [`skills/27-dual-model-plan-review/SKILL.md`](skills/27-dual-model-plan-review/SKILL.md).
+- Preparação do gate de review sem burlá-lo: [`skills/28-plan-review-autopilot/SKILL.md`](skills/28-plan-review-autopilot/SKILL.md).
+- Fluxo mestre de mudança em escopo governado: [`skills/29-governed-change-workflow/SKILL.md`](skills/29-governed-change-workflow/SKILL.md).
+- Integrações com serviços externos (ports, credencial por tenant, resiliência): [`skills/30-third-party-service-integrations/SKILL.md`](skills/30-third-party-service-integrations/SKILL.md).
+- Coordenação entre sessões paralelas (IDs, branches, PRs, infra compartilhada): [`skills/31-parallel-session-coordination/SKILL.md`](skills/31-parallel-session-coordination/SKILL.md).

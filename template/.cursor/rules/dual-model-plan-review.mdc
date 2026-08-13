@@ -1,0 +1,24 @@
+---
+description: Plano so executa depois de review registrado e verificavel (hash, TTL, artefato)
+alwaysApply: true
+---
+
+# Dual-model plan review
+
+- Antes de executar qualquer `.cursor/plans/*.plan.md`, verifique o bloco `review:` no frontmatter.
+  Sem `status` `APPROVED` ou `APPROVED_WITH_CHANGES`, o plano e `DRAFT_NOT_EXECUTABLE`.
+- Aplique `skills/27-dual-model-plan-review/SKILL.md`. Para preparar o gate, use
+  `skills/28-plan-review-autopilot/SKILL.md`.
+- Rode `make verify-plan-reviews` antes de executar. Falha do gate = plano `BLOCKED`, nao aviso.
+- Bloqueie a execucao quando faltar o artefato em `automation/PLAN_REVIEWS/`, quando `plan_sha256`
+  divergir do corpo atual ou quando o TTL tiver expirado. Hash divergente significa que o plano mudou
+  depois do review; nenhuma aprovacao verbal substitui isso.
+- `APPROVED_WITH_CHANGES` autoriza execucao somente depois de incorporar as mudancas exigidas e
+  recalcular o hash.
+- Planner e reviewer nunca sao o mesmo modelo. Autoaprovacao silenciosa nao e review.
+- `OPERATOR_FALLBACK` e ultimo recurso, exige `operator_fallback_reason` e e proibido para API publica
+  em `pkg/**`, contratos em `api/**`, migrations, auth, seguranca, segredos, concorrencia, semantica de
+  fila/DLQ/replay/idempotencia/ordenacao e ADRs.
+- Nao confunda veredito de review (`APPROVED`/`REJECTED`) com diagnostico de fase
+  (`PASS`/`PARTIAL`/`FAIL`/`BLOCKED`). Sao eixos diferentes e ambos precisam passar.
+- Nao enfraqueca `scripts/verify-plan-review.sh` para destravar entrega.

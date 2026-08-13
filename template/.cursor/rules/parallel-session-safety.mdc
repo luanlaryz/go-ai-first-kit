@@ -1,0 +1,30 @@
+---
+description: Coordenacao entre sessoes paralelas - IDs, branches, PRs, backlog e infra compartilhada
+alwaysApply: true
+---
+
+# Parallel session safety
+
+- Assuma sessoes paralelas por padrao; aplique `skills/31-parallel-session-coordination/SKILL.md`
+  antes de reservar ID, criar branch ou publicar PR.
+- Trabalho que gera commit nasce em worktree dedicado a partir da base recem-fetchada; proibido
+  commitar do workspace principal quando houver trabalho em andamento nao relacionado.
+- Branch nomeada `{tipo}/blg{NNNN}-<slug>`; o ID no nome e a chave de deduplicacao entre sessoes.
+  Renumerou o ID antes de publicar? Renomeie a branch.
+- IDs sequenciais (`BLG-NNNN`, `specs/NNN`, `migrations/NNNN`, numero de skill, plan-id) sao
+  reservados no ultimo momento antes do commit e recalculados com **sort numerico** contra a base e
+  contra PRs abertos (titulo, branch e paths). Em colisao, renumere e revalide as referencias cruzadas.
+- Antes de `git push`/`gh pr create`: `git fetch`, `git ls-remote origin <branch>` e
+  `gh pr list --state open --head <branch>`. Gate executavel:
+  `scripts/check-parallel-collision.sh` (hook `beforeShellExecution` + `make guardrails`).
+- Push rejeitado por non-fast-forward = parar e integrar (Protocolo D). Force push e proibido.
+- Branch remota com trabalho de outra sessao integra-se por rebase com fast-forward provado
+  (`git merge-base --is-ancestor`); nunca sobrescrever. Depois de integrar, nao rebasear sobre a base:
+  isso reescreve commits alheios ja publicados.
+- `docs/backlog/Backlog.md` e arquivo unico: item novo sempre ao final da secao, rebase imediatamente
+  antes do push, e conflito preserva os itens de **ambas** as sessoes. O caso perigoso nao e o
+  conflito, e o merge que o git resolve sozinho e deixa dois itens com o mesmo ID.
+- Conflito em lockfile nao se resolve a mao: rebase e regenere com a toolchain.
+- Infra local compartilhada: nao recrie, migre ou semeie sem confirmar que nenhuma outra sessao a usa;
+  nunca derrube container de outro projeto por conflito de porta.
+- Apos `gh pr create`/`gh pr edit`: conferir `isDraft` e o estado final do PR.

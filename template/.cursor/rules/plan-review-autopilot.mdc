@@ -1,0 +1,22 @@
+---
+description: Prepara automaticamente o gate de review de planos sem burlar a governanca
+alwaysApply: true
+---
+
+# Plan review autopilot
+
+- Quando um plano estiver bloqueado por `review:` ausente, invalido, stale ou expirado, prepare o gate
+  aplicando `skills/28-plan-review-autopilot/SKILL.md` em vez de editar o frontmatter a mao.
+- Comandos permitidos: `make review-plan PLAN=<caminho>`, `make review-plan-turn-based PLAN=<caminho>`,
+  `python3 scripts/review-plan.py ...` e `make verify-plan-reviews`.
+- Preparacao altera **somente** o bloco `review:` do frontmatter e o artefato em
+  `automation/PLAN_REVIEWS/`. Nunca altere o corpo do plano durante a preparacao: isso invalidaria o
+  proprio hash que o gate confere.
+- Artefato `PENDING_REVIEW` nao e aprovacao. Diga explicitamente que o plano continua nao executavel
+  ate existir evidencia de reviewer independente.
+- Nao execute o plano funcional antes de `make verify-plan-reviews` passar, mesmo com pedido explicito
+  para seguir.
+- `DUAL_TURN_BASED` e o modo default seguro quando nao ha provider de review configurado.
+  `DUAL_AUTOMATED` exige `PLAN_REVIEW_API_KEY` e modelos distintos; sem isso, nao finja aprovacao.
+- `OPERATOR_FALLBACK` permanece proibido em area de alto risco, mesmo durante preparacao.
+- Explique o bloqueio em linguagem direta, citando qual condicao falhou (hash, TTL, artefato, reviewer).

@@ -1,0 +1,16 @@
+---
+description: Artefato de entrega e repositorio sem build output nem dependencia instalada
+alwaysApply: true
+---
+
+# Package clean
+
+- Nao versione nem empacote: `.git`, `node_modules`, diretorio de coverage, perfil de coverage,
+  binario compilado, binario de teste (`*.test`) ou saida de build (`bin/`).
+- O gate olha para o que esta **git-tracked** e para o diretorio de entrega (`$PACKAGE_DIR`, `dist`,
+  `release`). Saida de build ignorada no workspace local nao e escaneada: o alvo e o que sobe, nao o
+  que existe na maquina.
+- `vendor/` so entra com excecao documentada e com prazo em `.guardrails/package-exceptions.yaml`.
+- Excecao exige `path`, `rule`, `justification`, `owner`, `expires_at` e `ref`; entrada expirada
+  reprova o gate.
+- Gate executavel: `make check-package-clean` (agregado em `make guardrails`).

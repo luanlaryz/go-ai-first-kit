@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "_docs": "Marcadores que o agent-cloud-access-guard usa para classificar o ALVO de um comando aws/kubectl. Preencha com os identificadores reais do projeto: nomes de profile AWS, nomes/ARNs de contexto kubectl e IDs de conta. Comparacao e por substring, case-insensitive, contra a linha de comando e contra AWS_PROFILE/AWS_DEFAULT_PROFILE/AWS_ENDPOINT_URL/AWS_REGION.",
+  "_fail_safe": "Listas vazias sao seguras, nao permissivas: sem marcadores nada resolve para dev, todo alvo fica 'unknown', mutacao e negada e leitura exige aprovacao. Preencher dev_markers e o que libera o fluxo de desenvolvimento.",
+  "prod_markers": [],
+  "dev_markers": [],
+  "local_markers": [
+    "localhost",
+    "127.0.0.1",
+    "host.docker.internal",
+    "localstack",
+    ":4566"
+  ],
+  "_example": {
+    "prod_markers": ["my-profile-prod", "eks-prod", "111111111111"],
+    "dev_markers": ["my-profile-dev", "eks-dev", "222222222222"]
+  }
+}

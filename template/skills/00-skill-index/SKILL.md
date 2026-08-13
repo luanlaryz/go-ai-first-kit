@@ -16,6 +16,9 @@ Goal: ensure every change applies the right specialized skill and respects globa
 3. **Context Propagation**: propagate `context.Context` as the standard boundary for execution, cancellation and lifecycle.
 4. **Effective Go**: follow the 13-go skill for context, errors, interfaces, concurrency, and tests.
 5. **Observability**: emit events, logs and hooks through public contracts; never leak internal types into public signatures.
+6. **Governed Change**: a change in `pkg/**`, `internal/**`, `api/**` or `migrations/**` requires a backlog item, a dual-spec pair and a reviewed plan before the PR (skill 29).
+7. **Reviewed Plans**: a plan is executable only with a recorded verdict whose hash matches the current plan body (skill 27).
+8. **Parallel Sessions**: assume other sessions are active; reserve sequential IDs at the last moment and never force push to resolve a collision (skill 31).
 
 ## Do / Don't
 - **Do**: Identify the skill ID(s) below that match the asset you modify and load them fully.
@@ -51,6 +54,11 @@ Goal: ensure every change applies the right specialized skill and respects globa
   - `24-agent-readiness-governance`: `@kodus/agent-readiness` analysis filtered for {{PROJECT_SLUG}}'s Go library/framework scope.
   - `25-{{PROJECT_SLUG}}-ultra-rigid-sdd`: ultra-rigid evidence-first SDD for phase planning, autopilot prompt generation, paired implementation and diagnosis specs, reconciliation, readiness/release gates, and framework-vs-application boundaries.
   - `26-backlog-item-intake`: governed backlog intake for requests, gaps, bugs, diagnostics, recommendations and ideas persisted in `docs/backlog/Backlog.md`.
+  - `27-dual-model-plan-review`: plan review gate; a plan is executable only with a recorded, hash-bound, non-expired verdict in `automation/PLAN_REVIEWS/`.
+  - `28-plan-review-autopilot`: prepares the review artifact and `review:` frontmatter without approving anything on its own authority.
+  - `29-governed-change-workflow`: master flow for governed scope (`pkg/**`, `internal/**`, `api/**`, `migrations/**`): backlog item + dual-spec + reviewed plan before the PR.
+  - `30-third-party-service-integrations`: external services behind ports/adapters, per-tenant encrypted credentials, bounded cache, timeouts, retries and sanitized observability.
+  - `31-parallel-session-coordination`: multiple agent sessions in the same repo; late ID reservation, collision gate, post-collision integration and shared infra etiquette.
 
 ## Checklists
 **Before starting**
@@ -83,3 +91,7 @@ Goal: ensure every change applies the right specialized skill and respects globa
 - Example readiness review: user asks to run or apply `@kodus/agent-readiness` => load skills 20 + 21 + 24, and skill 23 when it is part of an interactive trail.
 - Example ultra-rigid phase planning: user asks for {{PROJECT_SLUG}} phase prompts, paired SDD specs, diagnosis gates, roadmap closure, or readiness confirmation => load skills 05 + 25, and skill 23 when it is part of an interactive trail.
 - Example backlog intake: user asks to register a gap, bug, recommendation or diagnostic finding in the backlog => load skills 05 + 23 + 25 + 26 before editing `docs/backlog/Backlog.md`.
+- Example governed change: user asks for a behavior change under `internal/` or `pkg/` => load skill 29 first, then 26 (backlog), 05 (dual-spec) and 27/28 (plan review) before touching code.
+- Example blocked plan: a plan cannot execute because `review:` is missing or expired => load skills 27 + 28 and prepare the gate; never edit the frontmatter by hand.
+- Example external integration: user asks to call an external API or add an agent tool that leaves the process => load skills 30 + 17 + 18, and 19 when an agent triggers the call.
+- Example parallel work: `git worktree list` or `gh pr list` shows another active session => load skill 31 before reserving any `BLG-NNNN`, spec or migration number.

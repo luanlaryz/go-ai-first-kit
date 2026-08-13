@@ -16,3 +16,10 @@ coverage.out
 # Generated
 dist/
 .tmp/
+
+# Agent hook audit trail (local evidence, may reference target environments)
+.cursor/hooks/.agent-cloud-access-audit.log
+
+# Python bytecode from the repo-local helper modules used by the gates
+__pycache__/
+*.pyc
