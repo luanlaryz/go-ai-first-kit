@@ -1,0 +1,21 @@
+---
+description: SDD nao negociavel - diagnosticar, especificar, dual-spec e registrar causa antes do codigo
+alwaysApply: true
+---
+
+# SDD non-negotiable
+
+- Antes de planejar ou implementar, leia `AGENTS.md`, `skills/00-skill-index/SKILL.md` e a spec ou ADR
+  governante.
+- Produza diagnostico antes de editar e declare as specs afetadas.
+- Toda mudanca de comportamento, arquitetura ou contrato atualiza a spec de construcao E a spec de
+  diagnostico na mesma alteracao. Spec de construcao sozinha e gap de especificacao.
+- Mudancas em `pkg/**`, `internal/**`, `api/**` ou `migrations/**` exigem spec, ADR ou change record
+  versionado correspondente. Um plano em `.cursor/plans/**` nao substitui spec: plano descreve
+  execucao, spec descreve contrato.
+- Nao implemente feature sem plano revisado quando a mudanca tocar contrato, arquitetura, seguranca ou
+  dados persistidos.
+- Registre causa da alteracao e validacao executada na resposta e no corpo do PR.
+- Gates executaveis: `scripts/check-sdd-compliance.sh` (spec/ADR acompanha o diff, e par dual-spec
+  existe) e `make verify-plan-reviews` (plano revisado).
+- Se a spec faltar ou estiver ambigua, pare e registre o gap. Nao preencha a lacuna por inferencia.

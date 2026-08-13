@@ -1,0 +1,17 @@
+---
+description: Cobertura regressiva obrigatoria para mudanca em escopo governado
+alwaysApply: true
+---
+
+# Regression coverage required
+
+- Mudanca em escopo governado (`pkg/**`, `internal/**`, `api/**`, `migrations/**`) declara no corpo do
+  PR a secao `## Regressao` com o item `BLG-NNNN` e o cenario alvo em `test/<pacote>::<cenario>`.
+- A declaracao e uma obrigacao rastreavel, nao uma promessa: se o cenario ainda nao existe, ele entra
+  como item de backlog com prazo, e isso fica visivel no PR.
+- O cenario de conformidade e implementado em PR isolado (ver `.cursor/rules/test-suite-session-isolation.mdc`).
+  PR de feature nao edita a suite de conformidade.
+- Teste unitario e de comportamento ao lado do codigo continuam obrigatorios no mesmo patch da mudanca.
+- Bug corrigido ganha teste que falha antes da correcao. Sem isso, nada impede a regressao voltar.
+- Gate executavel: `scripts/check-governed-change.sh` valida a presenca e a coerencia da secao
+  `## Regressao` (item igual ao do `## Backlog`, cenario dentro da arvore de testes).

@@ -1,0 +1,40 @@
+---
+description: Acesso de agent a nuvem e credenciais - alvo explicito, sem mutacao em producao, segredo nunca copiado
+alwaysApply: true
+---
+
+# Agent cloud access (AWS, kubectl, credenciais)
+
+Camada **preventiva** (advisory): orienta a decisao antes da acao. O controle executavel correspondente
+sao os hooks `.cursor/hooks/agent-cloud-access-guard.sh` (`beforeShellExecution`) e
+`.cursor/hooks/env-read-guard.sh` (`preToolUse`/`Read`), validados por `make check-agent-hooks`.
+A fronteira de seguranca real e IAM/RBAC, fora deste repositorio. Matriz de decisao e limites em
+`docs/runbooks/agent-cloud-access.md`.
+
+## Regras
+
+- Torne o alvo **explicito** em todo comando `aws`/`kubectl`: `--profile` e `--context`. Sem alvo
+  explicito, o guard classifica como nao comprovado e pede aprovacao (ou nega, se for mutacao).
+- Marcadores de ambiente ficam em `.cursor/hooks/cloud-access-config.json`. Listas vazias sao
+  restritivas por design: preencha `dev_markers` para liberar o fluxo de desenvolvimento, nunca
+  relaxe a matriz de decisao no lugar disso.
+- **Nunca** execute mutacao em producao (`aws rds modify-*`, `aws secretsmanager put-*`,
+  `aws sqs purge-queue`, `aws iam *`, `kubectl apply/create/patch/delete/exec/scale/port-forward`).
+  Mutacao em producao e execucao humana pelo runbook; para o agent e stop condition.
+- Leitura de segredo em producao (`aws secretsmanager get-secret-value`, `kubectl get secret`) exige
+  aprovacao humana. Prefira o caminho de menor privilegio: credencial read-only em vez da credencial
+  administrativa.
+- Nao dependa de `kubectl config current-context`: ele pode apontar para producao.
+- Para descobrir variaveis de um `.env`, use `make env-keys` (lista chaves sem valores) em vez de abrir
+  o arquivo.
+- Leitura de banco por cliente de linha de comando e **permitida** quando a conexao for read-only por
+  propriedade (transacao read-only, `statement_timeout` e identificacao da aplicacao), para que a
+  restricao nao dependa da boa vontade da query.
+- Nunca copie valor de segredo, DSN com senha, token ou dado pessoal para report, fixture, spec, plano,
+  corpo de PR ou mensagem. Cite caminho e classe da credencial; nunca copie o valor.
+- Nao provisione role, nao rotacione segredo e nao altere IAM/RBAC: e handoff humano
+  (`automation/STOP_CONDITIONS.md`).
+- Nao enfraqueca os hooks: remover entrada de `.cursor/hooks.json`, tirar `failClosed` ou transformar
+  `deny`/`ask` em `allow` reprova `make guardrails`.
+- Nao instale wrapper de PATH sobre os binarios `aws`/`kubectl` e nao intercepte clientes de banco:
+  quebraria a vazao de testes e ferramental sem adicionar seguranca real.

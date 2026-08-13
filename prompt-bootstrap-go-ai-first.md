@@ -26,6 +26,760 @@ Antes de escrever arquivos, colete:
 
 ## Arquivos
 
+<file path=".cursor/hooks/agent-cloud-access-guard-selftest.sh">
+#!/usr/bin/env bash
+# Selftest for the agent cloud access guard.
+#
+# Proves the classifier decides by target, never allows without proof of
+# dev/local, keeps ordinary tooling untouched, and fails closed.
+#
+# The decision matrix is exercised against a FIXTURE config in a temp root, not
+# against the project's real `.cursor/hooks/cloud-access-config.json`: the
+# selftest must hold regardless of which markers a given project configured.
+# The shipped default (empty marker lists) is asserted separately.
+set -uo pipefail
+
+root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+GUARD_PY="$root/.cursor/hooks/agent-cloud-access-guard.py"
+GUARD_SH="$root/.cursor/hooks/agent-cloud-access-guard.sh"
+failures=0
+
+command -v python3 >/dev/null 2>&1 || { echo "python3 is required for this selftest" >&2; exit 1; }
+[ -f "$GUARD_PY" ] || { echo "guard not found: $GUARD_PY" >&2; exit 1; }
+
+tmp_configured="$(mktemp -d)"
+tmp_unconfigured="$(mktemp -d)"
+trap 'rm -rf "$tmp_configured" "$tmp_unconfigured"' EXIT
+
+mkdir -p "$tmp_configured/.cursor/hooks" "$tmp_unconfigured/.cursor/hooks"
+cat >"$tmp_configured/.cursor/hooks/cloud-access-config.json" <<'JSON'
+{
+  "prod_markers": ["acme-prod", "eks-prod", "111111111111"],
+  "dev_markers": ["acme-dev", "eks-dev", "222222222222"],
+  "local_markers": ["localhost", "127.0.0.1", "localstack", ":4566"]
+}
+JSON
+cat >"$tmp_unconfigured/.cursor/hooks/cloud-access-config.json" <<'JSON'
+{
+  "prod_markers": [],
+  "dev_markers": [],
+  "local_markers": ["localhost", "127.0.0.1", "localstack", ":4566"]
+}
+JSON
+
+event() {
+  python3 -c 'import json,sys; print(json.dumps({"command": sys.argv[1], "cwd": "."}))' "$1"
+}
+
+permission() {
+  python3 -c 'import json,sys
+try:
+    print(json.load(sys.stdin).get("permission", "<none>"))
+except Exception:
+    print("<invalid>")'
+}
+
+# Runs the classifier against a given fake project root, with AWS target env
+# cleared unless the caller re-adds it through EXTRA_ENV.
+decide_in() {
+  local fake_root="$1" cmd="$2"
+  event "$cmd" \
+    | env -u AWS_PROFILE -u AWS_DEFAULT_PROFILE -u AWS_ENDPOINT_URL -u AWS_REGION \
+        CURSOR_PROJECT_ROOT="$fake_root" ${EXTRA_ENV:-} python3 "$GUARD_PY" 2>/dev/null \
+    | permission
+}
+
+expect() {
+  local label="$1" want="$2" cmd="$3"
+  local got
+  got="$(decide_in "$tmp_configured" "$cmd")"
+  if [ "$got" = "$want" ]; then
+    printf 'ok   %-56s -> %s\n' "$label" "$got"
+  else
+    printf 'FAIL %-56s -> got=%s want=%s\n' "$label" "$got" "$want" >&2
+    failures=$((failures + 1))
+  fi
+}
+
+expect_env() {
+  local label="$1" want="$2" cmd="$3" assignment="$4"
+  local got
+  got="$(EXTRA_ENV="$assignment" decide_in "$tmp_configured" "$cmd")"
+  if [ "$got" = "$want" ]; then
+    printf 'ok   %-56s -> %s\n' "$label" "$got"
+  else
+    printf 'FAIL %-56s -> got=%s want=%s\n' "$label" "$got" "$want" >&2
+    failures=$((failures + 1))
+  fi
+}
+
+expect_unconfigured() {
+  local label="$1" want="$2" cmd="$3"
+  local got
+  got="$(decide_in "$tmp_unconfigured" "$cmd")"
+  if [ "$got" = "$want" ]; then
+    printf 'ok   %-56s -> %s\n' "$label" "$got"
+  else
+    printf 'FAIL %-56s -> got=%s want=%s\n' "$label" "$got" "$want" >&2
+    failures=$((failures + 1))
+  fi
+}
+
+echo "== mutacao em producao = deny =="
+expect "rds modify prod" deny "aws rds modify-db-instance --profile acme-prod --db-instance-identifier x"
+expect "secretsmanager put prod" deny "aws secretsmanager put-secret-value --profile acme-prod --secret-id app-secret"
+expect "sqs purge conta prod" deny "aws sqs purge-queue --queue-url https://sqs.us-east-1.amazonaws.com/111111111111/q.fifo"
+expect "kubectl patch prod" deny "kubectl --context eks-prod -n app patch cronjob x -p {}"
+expect "kubectl exec prod" deny "kubectl --context eks-prod -n app exec deploy/api -- sh"
+
+echo "== leitura de segredo em producao = ask =="
+expect "get-secret-value prod" ask "aws secretsmanager get-secret-value --profile acme-prod --secret-id app-secret"
+expect "kubectl get secret prod" ask "kubectl --context eks-prod -n app get secret app-secret -o yaml"
+expect "ssm get-parameter prod" ask "aws ssm get-parameter --profile acme-prod --name /x --with-decryption"
+
+echo "== leitura em dev/local = allow =="
+expect "get-secret-value dev" allow "aws secretsmanager get-secret-value --profile acme-dev --secret-id app-secret"
+expect "sqs attrs local" allow "aws sqs get-queue-attributes --endpoint-url http://localhost:4566 --queue-url http://localhost:4566/000000000000/q"
+expect "kubectl get deployment dev" allow "kubectl --context arn:aws:eks:us-east-1:222222222222:cluster/eks-dev -n app get deployment api -o json"
+
+echo "== alvo ambiguo nunca vira allow =="
+expect "secret read sem alvo" ask "aws secretsmanager get-secret-value --secret-id app-secret"
+expect "leitura comum sem alvo" ask "aws sqs get-queue-attributes --queue-url https://example.invalid/q"
+expect "mutacao sem alvo" deny "aws secretsmanager put-secret-value --secret-id app-secret"
+expect "sts get-caller-identity" allow "aws sts get-caller-identity"
+
+echo "== alvo resolvido pelo ambiente do hook =="
+expect_env "env prod + secret read" ask "aws secretsmanager get-secret-value --secret-id x" "AWS_PROFILE=acme-prod"
+expect_env "env prod + mutacao" deny "aws secretsmanager put-secret-value --secret-id x" "AWS_PROFILE=acme-prod"
+expect_env "env dev + secret read" allow "aws secretsmanager get-secret-value --secret-id x" "AWS_PROFILE=acme-dev"
+expect_env "env endpoint local" allow "aws sqs get-queue-attributes --queue-url q" "AWS_ENDPOINT_URL=http://localhost:4566"
+
+echo "== kubectl sem --context = deny com auto-correcao =="
+expect "kubectl get sem context" deny "kubectl -n app get pods"
+expect "kubectl logs sem context" deny "kubectl logs -n app deploy/api"
+msg="$(event "kubectl -n app get pods" \
+  | env -u AWS_PROFILE CURSOR_PROJECT_ROOT="$tmp_configured" python3 "$GUARD_PY" 2>/dev/null \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin).get("agent_message",""))')"
+case "$msg" in
+  *--context*) printf 'ok   %-56s -> mensagem sugere --context\n' "auto-correcao presente" ;;
+  *) printf 'FAIL %-56s -> agent_message sem --context\n' "auto-correcao presente" >&2; failures=$((failures + 1)) ;;
+esac
+
+echo "== config default (sem marcadores) e restritiva, nao permissiva =="
+expect_unconfigured "mutacao sem config = deny" deny "aws s3 rm s3://bucket/key"
+expect_unconfigured "leitura sem config = ask" ask "aws s3 ls s3://bucket"
+expect_unconfigured "local ainda liberado" allow "aws sqs list-queues --endpoint-url http://localhost:4566"
+
+echo "== vazao preservada: ferramental comum e nao-invocacao =="
+expect "entrypoint de make" allow "make test"
+expect "runner python de teste" allow "python3 scripts/smoke.py --opt-in"
+expect "psql leitura" allow "psql \"\$DATABASE_URL\" -c 'select 1'"
+expect "kubectl como dado em loop" allow "for value in python3 kubectl git; do command -v \$value; done"
+expect "shutil.which kubectl" allow "python3 -c 'import shutil; print(shutil.which(\"kubectl\"))'"
+expect "git status" allow "git status --short"
+expect "rg em path com aws" allow "rg -n 'queue' internal/adapters/aws/queue.go"
+
+echo "== fail-closed =="
+if [ -x "$GUARD_SH" ]; then
+  bad="$(printf 'not json at all' | "$GUARD_SH" 2>/dev/null | permission)"
+  if [ "$bad" = "ask" ]; then
+    printf 'ok   %-56s -> %s\n' "evento invalido nao produz allow" "$bad"
+  else
+    printf 'FAIL %-56s -> got=%s want=ask\n' "evento invalido nao produz allow" "$bad" >&2
+    failures=$((failures + 1))
+  fi
+else
+  printf 'FAIL %-56s -> wrapper nao executavel\n' "fail-closed via wrapper" >&2
+  failures=$((failures + 1))
+fi
+
+if [ "$failures" -ne 0 ]; then
+  echo "agent-cloud-access-guard-selftest: FAIL ($failures caso(s))" >&2
+  exit 1
+fi
+echo "agent-cloud-access-guard-selftest: ok"
+</file>
+
+<file path=".cursor/hooks/agent-cloud-access-guard.py">
+#!/usr/bin/env python3
+"""Agent cloud access guard - beforeShellExecution classifier for aws/kubectl.
+
+Reads the hook event JSON on stdin and emits a permission decision. The
+classification is by TARGET (account, profile, context, endpoint), never by verb
+alone: a read command pointed at production can leak as much as a write, so a
+verb denylist with a read allowlist would leave the main exfiltration path open.
+
+Targets are resolved against the marker lists in `cloud-access-config.json`.
+Empty lists are safe, not permissive: nothing resolves to dev, every target
+becomes `unknown`, mutation is denied and reading requires approval.
+
+Fail-closed by contract: every internal error path emits `ask`, never `allow`.
+See `docs/runbooks/agent-cloud-access.md` for the decision matrix and limits.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import shlex
+import sys
+import time
+from pathlib import Path
+
+CONFIG_PATH = ".cursor/hooks/cloud-access-config.json"
+AUDIT_PATH = ".cursor/hooks/.agent-cloud-access-audit.log"
+MAX_AUDIT_BYTES = 512_000
+
+DEFAULT_LOCAL_MARKERS = ("localhost", "127.0.0.1", "host.docker.internal", "localstack", ":4566")
+
+# Reading a secret is the highest-value exfiltration path, so it is classified
+# apart from ordinary reads even though it is technically read-only.
+SECRET_READ = (
+    ("secretsmanager", "get-secret-value"),
+    ("secretsmanager", "batch-get-secret-value"),
+    ("ssm", "get-parameter"),
+    ("ssm", "get-parameters"),
+    ("ssm", "get-parameters-by-path"),
+)
+
+AWS_MUTATING_VERB = re.compile(
+    r"^(create|delete|put|update|modify|remove|set|attach|detach|add|associate|disassociate"
+    r"|purge|terminate|stop|start|reboot|restore|import|upload|copy|move|sync|rm|tag|untag"
+    r"|enable|disable|register|deregister|invoke|send|publish|reset|rotate|cancel|abort|apply)"
+    r"(-|$)"
+)
+AWS_READ_VERB = re.compile(r"^(describe|get|list|search|scan|query|head|lookup|filter|batch-get|select)(-|$)")
+
+KUBECTL_MUTATING = {
+    "apply", "create", "patch", "delete", "replace", "edit", "exec", "scale", "annotate",
+    "label", "cordon", "uncordon", "drain", "taint", "rollout", "set", "attach",
+    "port-forward", "proxy", "cp", "run", "expose", "autoscale", "evict",
+}
+KUBECTL_READ = {"get", "describe", "logs", "top", "explain", "api-resources", "api-versions", "version", "auth"}
+KUBECTL_SECRET_RESOURCE = re.compile(r"^secrets?(\.|/|$)|^secret/")
+
+
+def project_root() -> Path:
+    return Path(os.environ.get("CURSOR_PROJECT_ROOT") or os.getcwd())
+
+
+def load_markers() -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    """Return (prod, dev, local) markers, lowercased.
+
+    A missing or malformed config yields empty prod/dev lists, which makes every
+    target `unknown` - the restrictive end of the matrix.
+    """
+    prod: list[str] = []
+    dev: list[str] = []
+    local: list[str] = list(DEFAULT_LOCAL_MARKERS)
+    try:
+        raw = (project_root() / CONFIG_PATH).read_text(encoding="utf-8")
+        config = json.loads(raw)
+        if isinstance(config, dict):
+            prod = [str(item) for item in config.get("prod_markers") or [] if str(item).strip()]
+            dev = [str(item) for item in config.get("dev_markers") or [] if str(item).strip()]
+            configured_local = [str(item) for item in config.get("local_markers") or [] if str(item).strip()]
+            if configured_local:
+                local = configured_local
+    except (OSError, json.JSONDecodeError, TypeError):
+        pass
+    lower = lambda items: tuple(item.lower() for item in items)  # noqa: E731
+    return lower(prod), lower(dev), lower(local)
+
+
+PROD_MARKERS, DEV_MARKERS, LOCAL_MARKERS = load_markers()
+
+
+def emit(permission: str, *, user_message: str = "", agent_message: str = "") -> None:
+    payload: dict[str, str] = {"permission": permission}
+    if user_message:
+        payload["user_message"] = user_message
+    if agent_message:
+        payload["agent_message"] = agent_message
+    sys.stdout.write(json.dumps(payload))
+    sys.stdout.flush()
+
+
+def audit(decision: str, tool: str, verb: str, target: str) -> None:
+    """Append a redacted decision record. Never records the raw command, which
+    may embed a credential; only the classification triple."""
+    try:
+        path = project_root() / AUDIT_PATH
+        if path.exists() and path.stat().st_size > MAX_AUDIT_BYTES:
+            path.write_text("", encoding="utf-8")
+        line = "{} decision={} tool={} verb={} target={}\n".format(
+            time.strftime("%Y-%m-%dT%H:%M:%S%z"), decision, tool, verb or "-", target
+        )
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(line)
+    except OSError:
+        pass
+
+
+def split_command(command: str) -> list[str]:
+    try:
+        return shlex.split(command)
+    except ValueError:
+        return command.split()
+
+
+def env_target_hint() -> str:
+    """Resolve target from the environment visible to the hook process.
+
+    Required because the hook input carries the command string but not the agent
+    shell environment: a secret read with no explicit flag can still resolve to
+    production purely via an exported AWS_PROFILE.
+    """
+    blob = " ".join(
+        os.environ.get(name, "")
+        for name in ("AWS_PROFILE", "AWS_DEFAULT_PROFILE", "AWS_ENDPOINT_URL", "AWS_REGION")
+    ).lower()
+    if any(marker in blob for marker in PROD_MARKERS):
+        return "prod"
+    if any(marker in blob for marker in LOCAL_MARKERS):
+        return "local"
+    if any(marker in blob for marker in DEV_MARKERS):
+        return "dev"
+    return "unknown"
+
+
+def classify_target(command: str) -> str:
+    """Return prod | dev | local | unknown, resolving string first, env second."""
+    haystack = command.lower()
+    if any(marker in haystack for marker in PROD_MARKERS):
+        return "prod"
+    if any(marker in haystack for marker in LOCAL_MARKERS):
+        return "local"
+    if any(marker in haystack for marker in DEV_MARKERS):
+        return "dev"
+    return env_target_hint()
+
+
+def strip_env_prefix(tokens: list[str]) -> list[str]:
+    """Drop `env` and leading VAR=value assignments so the real binary surfaces."""
+    out = list(tokens)
+    while out:
+        head = out[0]
+        if head == "env":
+            out = out[1:]
+            continue
+        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", head):
+            out = out[1:]
+            continue
+        break
+    return out
+
+
+def find_invocation(tokens: list[str], binary: str) -> list[str] | None:
+    """Return the argv slice starting at `binary`, or None when the token only
+    appears as data (e.g. `for value in python3 kubectl git`)."""
+    for index, token in enumerate(tokens):
+        base = token.rsplit("/", 1)[-1]
+        if base != binary:
+            continue
+        if index == 0:
+            return tokens[index:]
+        previous = tokens[index - 1]
+        if previous in {"env", "sudo", "command", "exec", "xargs", "time", "&&", "||", "|", ";"}:
+            return tokens[index:]
+        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", previous):
+            return tokens[index:]
+        return None
+    return None
+
+
+def aws_service_and_verb(argv: list[str]) -> tuple[str, str]:
+    positional = [token for token in argv[1:] if not token.startswith("-")]
+    service = positional[0] if positional else ""
+    verb = positional[1] if len(positional) > 1 else ""
+    return service, verb
+
+
+def decide_aws(argv: list[str], command: str) -> tuple[str, str, str, str]:
+    service, verb = aws_service_and_verb(argv)
+    target = classify_target(command)
+    label = f"aws {service} {verb}".strip()
+
+    is_secret_read = any(service == svc and verb == vrb for svc, vrb in SECRET_READ)
+    if service == "sts" and verb == "get-caller-identity":
+        return "allow", label, target, "identidade nao expoe segredo"
+
+    if AWS_MUTATING_VERB.match(verb) and not AWS_READ_VERB.match(verb):
+        if target in {"dev", "local"}:
+            return "ask", label, target, "mutacao em ambiente de desenvolvimento"
+        # Unknown target must not be treated as dev: the default credential
+        # chain may resolve to production.
+        return "deny", label, target, "mutacao em producao ou alvo nao comprovado"
+
+    if is_secret_read:
+        if target in {"dev", "local"}:
+            return "allow", label, target, "leitura de segredo em dev/local"
+        return "ask", label, target, "leitura de segredo em producao ou alvo nao comprovado"
+
+    if target in {"dev", "local"}:
+        return "allow", label, target, "leitura em dev/local"
+    if target == "prod":
+        return "ask", label, target, "leitura em producao"
+    return "ask", label, target, "alvo nao comprovado"
+
+
+def kubectl_subcommand(argv: list[str]) -> tuple[str, list[str]]:
+    positional: list[str] = []
+    skip_next = False
+    for token in argv[1:]:
+        if skip_next:
+            skip_next = False
+            continue
+        if token.startswith("--"):
+            if "=" not in token:
+                skip_next = True
+            continue
+        if token.startswith("-") and len(token) > 1:
+            skip_next = True
+            continue
+        positional.append(token)
+    return (positional[0] if positional else ""), positional[1:]
+
+
+def has_explicit_context(argv: list[str]) -> bool:
+    for token in argv:
+        if token == "--context" or token.startswith("--context="):
+            return True
+    return False
+
+
+def decide_kubectl(argv: list[str], command: str) -> tuple[str, str, str, str]:
+    verb, rest = kubectl_subcommand(argv)
+    target = classify_target(command)
+    label = f"kubectl {verb}".strip()
+
+    if verb in {"config", "version", "api-resources", "api-versions", "explain"}:
+        return "allow", label, target, "metadados de cliente"
+
+    if not has_explicit_context(argv):
+        return "deny", label, target, "kubectl sem --context explicito"
+
+    if verb in KUBECTL_MUTATING:
+        if target in {"dev", "local"}:
+            return "ask", label, target, "mutacao em cluster de desenvolvimento"
+        return "deny", label, target, "mutacao em producao ou alvo nao comprovado"
+
+    if verb in KUBECTL_READ and any(KUBECTL_SECRET_RESOURCE.match(item) for item in rest):
+        if target in {"dev", "local"}:
+            return "allow", label, target, "leitura de secret em dev"
+        return "ask", label, target, "leitura de secret em producao ou alvo nao comprovado"
+
+    if target in {"dev", "local"}:
+        return "allow", label, target, "leitura em dev/local"
+    return "ask", label, target, "leitura em producao ou alvo nao comprovado"
+
+
+def main() -> int:
+    raw = sys.stdin.read()
+    try:
+        event = json.loads(raw) if raw.strip() else {}
+    except json.JSONDecodeError:
+        emit("ask", user_message="Guard de credencial nao conseguiu ler o evento do hook.")
+        return 0
+
+    command = str(event.get("command") or "")
+    if not command.strip():
+        emit("allow")
+        return 0
+
+    tokens = strip_env_prefix(split_command(command))
+    if not tokens:
+        emit("allow")
+        return 0
+
+    aws_argv = find_invocation(tokens, "aws")
+    kube_argv = find_invocation(tokens, "kubectl")
+
+    if aws_argv is not None:
+        decision, label, target, reason = decide_aws(aws_argv, command)
+    elif kube_argv is not None:
+        decision, label, target, reason = decide_kubectl(kube_argv, command)
+    else:
+        # Not a cloud CLI invocation: psql, make, test entrypoints, plain text.
+        emit("allow")
+        return 0
+
+    audit(decision, label.split(" ")[0], label, target)
+
+    if decision == "allow":
+        emit("allow")
+        return 0
+
+    if decision == "deny" and reason == "kubectl sem --context explicito":
+        emit(
+            "deny",
+            user_message=(
+                "Comando kubectl sem --context explicito foi bloqueado: o current-context pode "
+                "apontar para producao."
+            ),
+            agent_message=(
+                "Bloqueado: kubectl sem --context explicito. Reexecute informando o cluster, por "
+                "exemplo `kubectl --context <contexto-dev> ...`. Nao confie no current-context."
+            ),
+        )
+        return 0
+
+    if decision == "deny":
+        emit(
+            "deny",
+            user_message=f"Bloqueado ({label}): {reason}. Alvo classificado: {target}.",
+            agent_message=(
+                f"Bloqueado pelo guard de credencial: {reason} (alvo={target}). Mutacao em producao "
+                "exige execucao humana pelo runbook. Se o alvo for dev, torne-o explicito com "
+                "--profile/--context e confirme que o marcador esta em "
+                ".cursor/hooks/cloud-access-config.json."
+            ),
+        )
+        return 0
+
+    emit(
+        "ask",
+        user_message=f"Requer aprovacao ({label}): {reason}. Alvo classificado: {target}.",
+        agent_message=(
+            f"Aguardando aprovacao humana: {reason} (alvo={target}). Para leitura em dev, torne o "
+            "alvo explicito com --profile/--context e mantenha o marcador em "
+            ".cursor/hooks/cloud-access-config.json para evitar a aprovacao."
+        ),
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except SystemExit:
+        raise
+    except BaseException:  # fail-closed: never allow on internal error
+        emit("ask", user_message="Guard de credencial falhou internamente; decisao segura = ask.")
+        raise SystemExit(0)
+</file>
+
+<file path=".cursor/hooks/agent-cloud-access-guard.sh">
+#!/usr/bin/env bash
+# Agent cloud access guard - beforeShellExecution hook wrapper.
+# Reads the hook event JSON from stdin and delegates to the Python classifier.
+# Fail-closed: any failure emits `ask`, never `allow`. This is the opposite of
+# governed-change-guard.sh, which is fail-open because its definitive gate is CI;
+# here there is no downstream gate, so a broken guard must not open production.
+set -uo pipefail
+
+emit_ask() {
+  printf '{"permission":"ask","user_message":"Guard de credencial indisponivel; decisao segura = ask."}'
+  exit 0
+}
+
+command -v python3 >/dev/null 2>&1 || emit_ask
+root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+[ -n "$root" ] || emit_ask
+[ -f "$root/.cursor/hooks/agent-cloud-access-guard.py" ] || emit_ask
+
+CURSOR_PROJECT_ROOT="$root" python3 "$root/.cursor/hooks/agent-cloud-access-guard.py" || emit_ask
+</file>
+
+<file path=".cursor/hooks/cloud-access-config.json">
+{
+  "schema_version": 1,
+  "_docs": "Marcadores que o agent-cloud-access-guard usa para classificar o ALVO de um comando aws/kubectl. Preencha com os identificadores reais do projeto: nomes de profile AWS, nomes/ARNs de contexto kubectl e IDs de conta. Comparacao e por substring, case-insensitive, contra a linha de comando e contra AWS_PROFILE/AWS_DEFAULT_PROFILE/AWS_ENDPOINT_URL/AWS_REGION.",
+  "_fail_safe": "Listas vazias sao seguras, nao permissivas: sem marcadores nada resolve para dev, todo alvo fica 'unknown', mutacao e negada e leitura exige aprovacao. Preencher dev_markers e o que libera o fluxo de desenvolvimento.",
+  "prod_markers": [],
+  "dev_markers": [],
+  "local_markers": [
+    "localhost",
+    "127.0.0.1",
+    "host.docker.internal",
+    "localstack",
+    ":4566"
+  ],
+  "_example": {
+    "prod_markers": ["my-profile-prod", "eks-prod", "111111111111"],
+    "dev_markers": ["my-profile-dev", "eks-dev", "222222222222"]
+  }
+}
+</file>
+
+<file path=".cursor/hooks/env-read-guard-selftest.sh">
+#!/usr/bin/env bash
+# Selftest for the env read guard.
+set -uo pipefail
+
+root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+GUARD="$root/.cursor/hooks/env-read-guard.sh"
+failures=0
+
+command -v python3 >/dev/null 2>&1 || { echo "python3 is required for this selftest" >&2; exit 1; }
+[ -x "$GUARD" ] || { echo "guard not executable: $GUARD" >&2; exit 1; }
+
+permission() {
+  python3 -c 'import json,sys
+try:
+    print(json.load(sys.stdin).get("permission", "<none>"))
+except Exception:
+    print("<invalid>")'
+}
+
+decide_path() {
+  python3 -c 'import json,sys; print(json.dumps({"tool_name":"Read","tool_input":{"path": sys.argv[1]}}))' "$1" \
+    | "$GUARD" 2>/dev/null \
+    | permission
+}
+
+expect() {
+  local label="$1" want="$2" path="$3"
+  local got
+  got="$(decide_path "$path")"
+  if [ "$got" = "$want" ]; then
+    printf 'ok   %-52s -> %s\n' "$label" "$got"
+  else
+    printf 'FAIL %-52s -> got=%s want=%s\n' "$label" "$got" "$want" >&2
+    failures=$((failures + 1))
+  fi
+}
+
+expect ".env na raiz requer aprovacao" ask ".env"
+expect ".env em subdiretorio requer aprovacao" ask "/abs/path/test/integration/.env"
+expect ".env.local requer aprovacao" ask ".env.local"
+expect ".env.production requer aprovacao" ask "deploy/.env.production"
+expect ".env.example liberado" allow "test/integration/.env.example"
+expect ".env.sample liberado" allow "config/.env.sample"
+expect ".env.template liberado" allow ".env.template"
+expect "codigo Go liberado" allow "internal/config/config.go"
+expect "arquivo com env no nome liberado" allow "internal/adapters/secrets/environment.go"
+expect "runbook liberado" allow "docs/runbooks/agent-cloud-access.md"
+
+bad="$(printf 'nao json' | "$GUARD" 2>/dev/null | permission)"
+if [ "$bad" = "ask" ]; then
+  printf 'ok   %-52s -> %s\n' "fail-closed em evento invalido" "$bad"
+else
+  printf 'FAIL %-52s -> got=%s want=ask\n' "fail-closed em evento invalido" "$bad" >&2
+  failures=$((failures + 1))
+fi
+
+if [ "$failures" -ne 0 ]; then
+  echo "env-read-guard-selftest: FAIL ($failures caso(s))" >&2
+  exit 1
+fi
+echo "env-read-guard-selftest: ok"
+</file>
+
+<file path=".cursor/hooks/env-read-guard.py">
+#!/usr/bin/env python3
+"""Env read guard - preToolUse classifier for Read.
+
+Requires human approval before the agent reads a `.env` file. Implemented on
+`preToolUse` (matcher `Read`) rather than `beforeReadFile` because `preToolUse`
+documents `permission` support, while `beforeReadFile` matches by tool type and
+its permission support is not part of the documented output contract.
+
+Path filtering lives here, in the script, not in the matcher.
+
+This guard does not affect test suites or dev servers: those load `.env` inside
+their own processes (source/dotenv), which never goes through the agent's Read
+tool. Use `make env-keys` to list which keys exist without exposing values.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import sys
+
+ENV_FILE = re.compile(r"(^|/)\.env(\.[A-Za-z0-9_.-]+)?$")
+ALLOWED_SUFFIX = re.compile(r"\.env\.example$|\.env\.sample$|\.env\.template$")
+
+
+def emit(permission: str, *, user_message: str = "", agent_message: str = "") -> None:
+    payload: dict[str, str] = {"permission": permission}
+    if user_message:
+        payload["user_message"] = user_message
+    if agent_message:
+        payload["agent_message"] = agent_message
+    sys.stdout.write(json.dumps(payload))
+    sys.stdout.flush()
+
+
+def collect_paths(node: object, found: list[str]) -> None:
+    """Walk the event payload collecting values of any *path-ish* key, so the
+    guard survives small differences in the tool input schema."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if isinstance(value, str) and (
+                key.endswith("path") or key.endswith("Path") or key in {"file", "filename", "target"}
+            ):
+                found.append(value)
+            else:
+                collect_paths(value, found)
+    elif isinstance(node, list):
+        for item in node:
+            collect_paths(item, found)
+
+
+def main() -> int:
+    raw = sys.stdin.read()
+    try:
+        event = json.loads(raw) if raw.strip() else {}
+    except json.JSONDecodeError:
+        emit("ask", user_message="Guard de .env nao conseguiu ler o evento; decisao segura = ask.")
+        return 0
+
+    paths: list[str] = []
+    collect_paths(event, paths)
+
+    for path in paths:
+        if ALLOWED_SUFFIX.search(path):
+            continue
+        if ENV_FILE.search(path):
+            emit(
+                "ask",
+                user_message=(
+                    f"O agent quer ler {path}, que pode conter credenciais. Aprove somente se for "
+                    "necessario."
+                ),
+                agent_message=(
+                    "Leitura de .env requer aprovacao humana. Para descobrir quais variaveis existem "
+                    "sem expor valores, use `make env-keys`."
+                ),
+            )
+            return 0
+
+    emit("allow")
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except SystemExit:
+        raise
+    except BaseException:  # fail-closed
+        emit("ask", user_message="Guard de .env falhou internamente; decisao segura = ask.")
+        raise SystemExit(0)
+</file>
+
+<file path=".cursor/hooks/env-read-guard.sh">
+#!/usr/bin/env bash
+# Env read guard - preToolUse hook wrapper for Read.
+# Fail-closed: any failure emits `ask`, never `allow`.
+set -uo pipefail
+
+emit_ask() {
+  printf '{"permission":"ask","user_message":"Guard de .env indisponivel; decisao segura = ask."}'
+  exit 0
+}
+
+command -v python3 >/dev/null 2>&1 || emit_ask
+root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+[ -n "$root" ] || emit_ask
+[ -f "$root/.cursor/hooks/env-read-guard.py" ] || emit_ask
+
+python3 "$root/.cursor/hooks/env-read-guard.py" || emit_ask
+</file>
+
 <file path=".cursor/hooks/gofmt-after-edit.sh">
 #!/bin/bash
 input=$(cat)
@@ -39,6 +793,273 @@ echo '{}'
 exit 0
 </file>
 
+<file path=".cursor/hooks/governed-change-guard.py">
+#!/usr/bin/env python3
+"""Governed change guard - beforeShellExecution hook logic.
+
+Asks the user to register the governed-change trio (BLG-NNNN + dual-spec +
+reviewed plan) when a `git commit`/`git push` or `gh pr create` is about to run
+and the staged/working diff touches governed scope (pkg/**, internal/**, api/**,
+migrations/**) without an active interactive track in
+automation/INTERACTIVE_STATE.json.
+
+Best-effort: the definitive gate is scripts/check-governed-change.sh in
+pre-pr/CI. Fail-open on internal errors (emits allow); hooks.json `failClosed`
+covers process crash/timeout. Reads the hook event JSON from stdin.
+"""
+from __future__ import annotations
+
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+GOVERNED = re.compile(r"^(pkg/|internal/|api/|migrations/)")
+TRIGGER = re.compile(r"git\s+commit|git\s+push|gh\s+pr\s+create")
+ITEM_ID = re.compile(r"BLG-\d{4}")
+INACTIVE_STATUS = {"idle", "track_closed", ""}
+
+
+def emit(obj: dict) -> None:
+    sys.stdout.write(json.dumps(obj))
+    sys.exit(0)
+
+
+def main() -> None:
+    try:
+        raw = sys.stdin.read()
+        data = json.loads(raw) if raw.strip() else {}
+    except Exception:
+        emit({"permission": "allow"})
+
+    if not TRIGGER.search(data.get("command") or ""):
+        emit({"permission": "allow"})
+
+    try:
+        root = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True
+        ).stdout.strip()
+    except Exception:
+        root = ""
+    if not root:
+        emit({"permission": "allow"})
+
+    def git(*args: str) -> str:
+        try:
+            return subprocess.run(
+                ["git", "-C", root, *args], capture_output=True, text=True
+            ).stdout
+        except Exception:
+            return ""
+
+    files: set[str] = set()
+    for spec in (["diff", "--cached", "--name-only"], ["diff", "--name-only"]):
+        for f in git(*spec).splitlines():
+            if f.strip():
+                files.add(f.strip())
+    if not any(GOVERNED.match(f) for f in files):
+        emit({"permission": "allow"})
+
+    # An active interactive track is the signal that the trio was registered.
+    # The item id may live anywhere in current_request, so the whole state blob
+    # is scanned rather than one fixed field.
+    active = False
+    item = ""
+    state = Path(root) / "automation/INTERACTIVE_STATE.json"
+    if state.exists():
+        try:
+            text = state.read_text(encoding="utf-8")
+            parsed = json.loads(text)
+            status = str(parsed.get("status") or "").strip()
+            active = status not in INACTIVE_STATUS and parsed.get("current_request") is not None
+            found = ITEM_ID.search(text)
+            item = found.group(0) if found else ""
+        except Exception:
+            active = False
+
+    item_ok = False
+    if item:
+        backlog = Path(root) / "docs" / "backlog" / "Backlog.md"
+        if backlog.is_file():
+            try:
+                item_ok = re.search(
+                    rf"^###\s+{re.escape(item)}\b", backlog.read_text(encoding="utf-8"), re.MULTILINE
+                ) is not None
+            except Exception:
+                item_ok = False
+
+    if active and item_ok:
+        emit({"permission": "allow"})
+
+    emit({
+        "permission": "ask",
+        "user_message": (
+            "Mudanca em escopo governado (pkg/internal/api/migrations) sem trilha ativa registrada. "
+            "Registre BLG-NNNN no backlog + par dual-spec + plano revisado antes de commit/push "
+            "(skills/29-governed-change-workflow)."
+        ),
+        "agent_message": (
+            "Governed-change guard: escopo governado sem trilha ativa em "
+            "automation/INTERACTIVE_STATE.json com item BLG-NNNN presente em docs/backlog/Backlog.md. "
+            "Aplique skills/29-governed-change-workflow (backlog + dual-spec + plano com review). "
+            "Gate definitivo: scripts/check-governed-change.sh no pre-pr/CI."
+        ),
+    })
+
+
+try:
+    main()
+except SystemExit:
+    raise
+except Exception:
+    emit({"permission": "allow"})
+</file>
+
+<file path=".cursor/hooks/governed-change-guard.sh">
+#!/usr/bin/env bash
+# Governed change guard - beforeShellExecution hook wrapper.
+# Reads the hook event JSON from stdin and delegates to the Python guard.
+# Fail-open: any failure emits allow so the guard never hard-blocks on its own
+# bug; hooks.json `failClosed` covers process crash/timeout. The definitive gate
+# is scripts/check-governed-change.sh in pre-pr/CI.
+set -uo pipefail
+
+emit_allow() { printf '{"permission":"allow"}'; exit 0; }
+
+command -v python3 >/dev/null 2>&1 || emit_allow
+root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+[ -n "$root" ] || emit_allow
+[ -f "$root/.cursor/hooks/governed-change-guard.py" ] || emit_allow
+
+python3 "$root/.cursor/hooks/governed-change-guard.py" || emit_allow
+</file>
+
+<file path=".cursor/hooks/parallel-collision-guard.py">
+#!/usr/bin/env python3
+"""Parallel collision guard - beforeShellExecution hook logic.
+
+Roda scripts/check-parallel-collision.sh antes de `git push` / `gh pr create` e
+pede confirmacao quando um ID sequencial desta branch (BLG-NNNN, specs/NNN,
+migrations/NNNN) ja esta ocupado na base, num PR aberto ou numa branch remota.
+
+Por que so em push/PR, e nao em commit: e quando a colisao vira publica e cara de
+desfazer, e evita consulta de rede a cada commit.
+
+Best-effort: o gate definitivo e scripts/check-parallel-collision.sh no pre-pr.
+Fail-open em erro interno (emite allow); hooks.json `failClosed` cobre
+crash/timeout. Le o JSON do evento em stdin.
+"""
+from __future__ import annotations
+
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+TRIGGER = re.compile(r"git\s+push|gh\s+pr\s+create")
+TIMEOUT_SECONDS = 45
+
+
+def emit(obj: dict) -> None:
+    sys.stdout.write(json.dumps(obj))
+    sys.exit(0)
+
+
+def main() -> None:
+    try:
+        raw = sys.stdin.read()
+        data = json.loads(raw) if raw.strip() else {}
+    except Exception:
+        emit({"permission": "allow"})
+
+    if not TRIGGER.search(data.get("command") or ""):
+        emit({"permission": "allow"})
+
+    try:
+        root = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True
+        ).stdout.strip()
+    except Exception:
+        root = ""
+    if not root:
+        emit({"permission": "allow"})
+
+    gate = Path(root) / "scripts/check-parallel-collision.sh"
+    if not gate.exists():
+        emit({"permission": "allow"})
+
+    try:
+        proc = subprocess.run(
+            ["bash", str(gate)],
+            capture_output=True,
+            text=True,
+            cwd=root,
+            timeout=TIMEOUT_SECONDS,
+        )
+    except Exception:
+        # Rede lenta ou indisponivel nao pode virar bloqueio: o gate do pre-pr
+        # roda de novo antes do PR.
+        emit({"permission": "allow"})
+
+    if proc.returncode == 0:
+        emit({"permission": "allow"})
+
+    detail = (proc.stderr or proc.stdout or "").strip()
+    collisions = [
+        line.split("FAIL:", 1)[1].strip()
+        for line in detail.splitlines()
+        if "FAIL:" in line
+    ]
+    resumo = "; ".join(collisions) if collisions else detail[:400]
+
+    emit(
+        {
+            "permission": "ask",
+            "user_message": (
+                "Colisao de ID entre sessoes paralelas detectada antes de publicar: "
+                f"{resumo}. Renumere antes do push (skills/31-parallel-session-coordination, "
+                "Protocolo B)."
+            ),
+            "agent_message": (
+                "Parallel collision guard: "
+                f"{resumo}. Recalcule o ID com sort numerico contra a base, PRs abertos e "
+                "branches remotas; revalide as referencias cruzadas (backlog, plano, corpo do "
+                "PR, specs) e renomeie a branch se ainda nao publicada. "
+                "Gate definitivo: scripts/check-parallel-collision.sh."
+            ),
+        }
+    )
+
+
+try:
+    main()
+except SystemExit:
+    raise
+except Exception:
+    emit({"permission": "allow"})
+</file>
+
+<file path=".cursor/hooks/parallel-collision-guard.sh">
+#!/usr/bin/env bash
+# Parallel collision guard - beforeShellExecution hook wrapper.
+# Reads the hook event JSON from stdin and delegates to the Python guard.
+# Fail-open: any failure emits allow so a slow network never hard-blocks a push;
+# hooks.json `failClosed` covers process crash/timeout and the definitive gate is
+# scripts/check-parallel-collision.sh in pre-pr/CI.
+set -uo pipefail
+
+emit_allow() { printf '{"permission":"allow"}'; exit 0; }
+
+command -v python3 >/dev/null 2>&1 || emit_allow
+root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+[ -n "$root" ] || emit_allow
+[ -f "$root/.cursor/hooks/parallel-collision-guard.py" ] || emit_allow
+
+python3 "$root/.cursor/hooks/parallel-collision-guard.py" || emit_allow
+</file>
+
 <file path=".cursor/hooks.json">
 {
   "version": 1,
@@ -48,9 +1069,871 @@ exit 0
         "command": ".cursor/hooks/gofmt-after-edit.sh",
         "matcher": "\\.go$"
       }
+    ],
+    "beforeShellExecution": [
+      {
+        "command": ".cursor/hooks/agent-cloud-access-guard.sh",
+        "matcher": "aws|kubectl",
+        "failClosed": true,
+        "timeout": 10
+      },
+      {
+        "command": ".cursor/hooks/governed-change-guard.sh",
+        "matcher": "git commit|git push|gh pr create",
+        "failClosed": true,
+        "timeout": 10
+      },
+      {
+        "command": ".cursor/hooks/parallel-collision-guard.sh",
+        "matcher": "git push|gh pr create",
+        "failClosed": true,
+        "timeout": 60
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": ".cursor/hooks/env-read-guard.sh",
+        "matcher": "^Read$",
+        "failClosed": true,
+        "timeout": 10
+      }
     ]
   }
 }
+</file>
+
+<file path=".cursor/plans/templates/README.md">
+# Cursor Plan Templates
+
+Templates de plano para as mudancas mais comuns em `{{PROJECT_SLUG}}`.
+
+## Como usar
+
+1. Copie o conteudo do template adequado para um novo arquivo em `.cursor/plans/<nome>_<hash>.plan.md`.
+2. Preencha o frontmatter real (`id`, `status`, `risk`, `area`) e todas as secoes.
+3. Prepare o gate de review com [`skills/28-plan-review-autopilot/SKILL.md`](../../../skills/28-plan-review-autopilot/SKILL.md) antes de executar.
+4. Rode `make verify-plan-reviews` e so execute apos veredito `APPROVED` ou `APPROVED_WITH_CHANGES`.
+
+## Por que `.plan.template.md`
+
+Os templates usam a extensao `.plan.template.md` e mantem o frontmatter de exemplo dentro de blocos de
+codigo. Isso evita que `scripts/verify-plan-review.sh` (que varre `.cursor/plans/*.plan.md`) trate um
+template como plano executavel sem review valido.
+
+## Templates disponiveis
+
+- `adapter-port.plan.template.md`: adapter de borda mapeando sistema externo para DTO canonico.
+- `openapi-change.plan.template.md`: mudanca em contrato publicado.
+- `migration-change.plan.template.md`: mudanca de schema com migrations versionadas.
+- `runtime-change.plan.template.md`: mudanca de comportamento no runtime interno.
+- `worker-change.plan.template.md`: mudanca em consumo assincrono, retry, DLQ ou idempotencia.
+- `golden-case.plan.template.md`: novo caso golden ou de conformidade.
+</file>
+
+<file path=".cursor/plans/templates/adapter-port.plan.template.md">
+# Template: Adapter Port
+
+Frontmatter esperado ao copiar para um plano real:
+
+```md
+---
+id: <plan-id>
+status: DRAFT_NOT_EXECUTABLE
+risk: medium
+area: adapters
+---
+```
+
+# Objetivo
+
+Implementar ou portar um adapter de borda para {{EXTERNAL_SYSTEM}}, mapeando o payload do sistema
+externo para o DTO canonico do core.
+
+# Escopo permitido
+
+- `internal/adapters/<adapter>`
+- `test/fixtures/<sistema-externo>`, `test/conformance`
+
+# Fora de escopo
+
+- Tipo do sistema externo vazando para o dominio ou para a camada de aplicacao.
+- Chamada real ao sistema externo em teste.
+
+# Contratos afetados
+
+- Spec do adapter (construcao + diagnostico).
+- Contrato canonico de entrada do core.
+
+# Plano de implementacao
+
+1. Confirmar o payload externo e o mapeamento canonico na spec.
+2. Criar fixtures de borda a partir de payload real redigido.
+3. Implementar o mapeamento no adapter.
+4. Provar que nenhum tipo do sistema externo alcanca `pkg/**` nem o core.
+
+# Testes obrigatorios
+
+- `go test ./test/conformance/...`
+- `make test`
+- `make guardrails`
+
+# Rollback
+
+- Reverter adapter e fixtures adicionados; o core nao deve ter mudado.
+
+# Stop conditions
+
+- Contrato do sistema externo indisponivel ou ambiguo.
+- Mapeamento exigiria expor tipo externo em API publica.
+</file>
+
+<file path=".cursor/plans/templates/golden-case.plan.template.md">
+# Template: Golden Case
+
+Frontmatter esperado ao copiar para um plano real:
+
+```md
+---
+id: <plan-id>
+status: DRAFT_NOT_EXECUTABLE
+risk: low
+area: tests
+---
+```
+
+# Objetivo
+
+Adicionar um caso golden ou de conformidade que fixe comportamento observavel ja especificado.
+
+# Escopo permitido
+
+- `test/conformance`, `test/fixtures`
+
+# Fora de escopo
+
+- Alterar codigo de producao para fazer o golden passar.
+- Golden que congele comportamento nao especificado (isso transforma bug em contrato).
+
+# Contratos afetados
+
+- Spec que define o comportamento sendo fixado.
+
+# Plano de implementacao
+
+1. Citar a secao da spec que define o comportamento esperado.
+2. Criar a fixture de entrada, redigindo qualquer dado sensivel.
+3. Gerar o golden e revisar o conteudo linha a linha.
+4. Confirmar que o teste falha se o comportamento regredir.
+
+# Testes obrigatorios
+
+- `go test ./test/conformance/...`
+- `make test`
+
+# Rollback
+
+- Remover fixture e golden adicionados.
+
+# Stop conditions
+
+- Comportamento observado divergindo da spec: corrigir a spec ou o codigo antes de fixar o golden.
+- Fixture exigiria dado sensivel real.
+</file>
+
+<file path=".cursor/plans/templates/migration-change.plan.template.md">
+# Template: Migration Change
+
+Frontmatter esperado ao copiar para um plano real:
+
+```md
+---
+id: <plan-id>
+status: DRAFT_NOT_EXECUTABLE
+risk: high
+area: migration
+---
+```
+
+# Objetivo
+
+Adicionar ou alterar schema via migrations versionadas, com par up/down aplicavel.
+
+# Escopo permitido
+
+- `migrations/` (par up/down)
+- repositorios e adapters de persistencia correspondentes
+
+# Fora de escopo
+
+- DDL em construtor, handler ou codigo de aplicacao.
+- Migration destrutiva sem spec, backfill e backup.
+
+# Contratos afetados
+
+- Spec de dados (construcao + diagnostico).
+- Isolamento por {{DOMAIN_ACTOR}} quando o schema for multi-tenant.
+
+# Plano de implementacao
+
+1. Confirmar spec de dados e impacto em leitura/escrita existentes.
+2. Criar o par up/down idempotente.
+3. Ajustar repositorios e adapters.
+4. Validar aplicacao e reversao contra banco limpo e banco com dados.
+
+# Testes obrigatorios
+
+- Aplicar e reverter a migration em ambiente local.
+- `make test`
+- `make guardrails`
+
+# Rollback
+
+- Aplicar a migration down e reverter o adapter no mesmo commit.
+
+# Stop conditions
+
+- Mudanca destrutiva sem spec aprovada.
+- Falta de plano de backfill para dado existente.
+- Reversao nao testada.
+</file>
+
+<file path=".cursor/plans/templates/openapi-change.plan.template.md">
+# Template: Contract (OpenAPI) Change
+
+Frontmatter esperado ao copiar para um plano real:
+
+```md
+---
+id: <plan-id>
+status: DRAFT_NOT_EXECUTABLE
+risk: high
+area: contract
+---
+```
+
+# Objetivo
+
+Alterar contrato publicado (`api/**`) mantendo compatibilidade declarada e clientes tipados em
+sincronia.
+
+# Escopo permitido
+
+- `api/**` (spec do contrato)
+- handlers e DTOs de transporte correspondentes
+- `test/conformance`
+
+# Fora de escopo
+
+- Mudanca de comportamento de dominio sem spec propria.
+- Breaking change sem decisao registrada em `docs/decisions/`.
+
+# Contratos afetados
+
+- Contrato publicado e clientes gerados.
+- `specs/010-feature-matrix.md` quando a cobertura mudar.
+
+# Plano de implementacao
+
+1. Classificar a mudanca: aditiva, comportamental ou breaking.
+2. Atualizar o contrato e regenerar clientes/tipos derivados.
+3. Ajustar handlers e validacao de entrada.
+4. Cobrir sucesso, erro e limite observavel no teste de conformidade.
+
+# Testes obrigatorios
+
+- `go test ./test/conformance/...`
+- `make test`
+- `make guardrails`
+
+# Rollback
+
+- Reverter contrato, clientes gerados e handlers no mesmo commit.
+
+# Stop conditions
+
+- Breaking change sem aprovacao registrada.
+- Cliente gerado divergindo do contrato apos regeneracao.
+</file>
+
+<file path=".cursor/plans/templates/runtime-change.plan.template.md">
+# Template: Runtime Change
+
+Frontmatter esperado ao copiar para um plano real:
+
+```md
+---
+id: <plan-id>
+status: DRAFT_NOT_EXECUTABLE
+risk: medium
+area: runtime
+---
+```
+
+# Objetivo
+
+Alterar comportamento observavel do runtime interno preservando a fronteira `pkg/` <-> `internal/`.
+
+# Escopo permitido
+
+- `internal/runtime` e pacotes internos afetados
+- `pkg/**` somente quando a spec autorizar mudanca de API publica
+
+# Fora de escopo
+
+- Expor tipo de `internal/*` em assinatura exportada.
+- Nova dependencia externa sem decisao registrada.
+
+# Contratos afetados
+
+- Spec de construcao do modulo e sua spec de diagnostico.
+- Contrato publico quando a mudanca alcancar `pkg/**`.
+
+# Plano de implementacao
+
+1. Declarar o comportamento antes e depois, de forma observavel.
+2. Confirmar se a mudanca exige atualizacao de API publica.
+3. Implementar preservando propagacao de `context.Context` e cancelamento.
+4. Cobrir sucesso, falha e cancelamento no teste.
+
+# Testes obrigatorios
+
+- `make test`
+- `make race`
+- `make guardrails`
+
+# Rollback
+
+- Reverter o pacote alterado; API publica nao deve ter mudado se o plano era interno.
+
+# Stop conditions
+
+- Mudanca exigiria quebrar contrato publico sem aprovacao.
+- Comportamento novo nao coberto por spec.
+</file>
+
+<file path=".cursor/plans/templates/worker-change.plan.template.md">
+# Template: Worker Change
+
+Frontmatter esperado ao copiar para um plano real:
+
+```md
+---
+id: <plan-id>
+status: DRAFT_NOT_EXECUTABLE
+risk: high
+area: worker
+---
+```
+
+# Objetivo
+
+Alterar consumo assincrono preservando idempotencia, ordenacao declarada, retry e destino de falha.
+
+# Escopo permitido
+
+- worker e adapters de fila correspondentes
+- `test/conformance` e fixtures de mensagem
+
+# Fora de escopo
+
+- Consumo sem retry, sem DLQ e sem observabilidade.
+- Efeito colateral nao idempotente em reprocessamento.
+
+# Contratos afetados
+
+- Contrato da mensagem e sua chave de idempotencia.
+- Politica de retry, DLQ e replay.
+
+# Plano de implementacao
+
+1. Declarar a chave de idempotencia e o efeito de reprocessar a mesma mensagem.
+2. Definir retry, backoff e destino de falha antes de implementar.
+3. Implementar o handler e a instrumentacao (log, metrica, trace).
+4. Provar reprocessamento seguro com a mesma mensagem duas vezes.
+
+# Testes obrigatorios
+
+- `go test ./test/conformance/...`
+- `make test`
+- `make race`
+- `make guardrails`
+
+# Rollback
+
+- Reverter handler e configuracao de fila; mensagens em DLQ precisam de plano de replay.
+
+# Stop conditions
+
+- Idempotencia nao demonstravel.
+- Ausencia de destino de falha (DLQ) ou de plano de replay.
+- Ordenacao exigida pela spec nao garantida pelo transporte.
+</file>
+
+<file path=".cursor/rules/agent-cloud-access.mdc">
+---
+description: Acesso de agent a nuvem e credenciais - alvo explicito, sem mutacao em producao, segredo nunca copiado
+alwaysApply: true
+---
+
+# Agent cloud access (AWS, kubectl, credenciais)
+
+Camada **preventiva** (advisory): orienta a decisao antes da acao. O controle executavel correspondente
+sao os hooks `.cursor/hooks/agent-cloud-access-guard.sh` (`beforeShellExecution`) e
+`.cursor/hooks/env-read-guard.sh` (`preToolUse`/`Read`), validados por `make check-agent-hooks`.
+A fronteira de seguranca real e IAM/RBAC, fora deste repositorio. Matriz de decisao e limites em
+`docs/runbooks/agent-cloud-access.md`.
+
+## Regras
+
+- Torne o alvo **explicito** em todo comando `aws`/`kubectl`: `--profile` e `--context`. Sem alvo
+  explicito, o guard classifica como nao comprovado e pede aprovacao (ou nega, se for mutacao).
+- Marcadores de ambiente ficam em `.cursor/hooks/cloud-access-config.json`. Listas vazias sao
+  restritivas por design: preencha `dev_markers` para liberar o fluxo de desenvolvimento, nunca
+  relaxe a matriz de decisao no lugar disso.
+- **Nunca** execute mutacao em producao (`aws rds modify-*`, `aws secretsmanager put-*`,
+  `aws sqs purge-queue`, `aws iam *`, `kubectl apply/create/patch/delete/exec/scale/port-forward`).
+  Mutacao em producao e execucao humana pelo runbook; para o agent e stop condition.
+- Leitura de segredo em producao (`aws secretsmanager get-secret-value`, `kubectl get secret`) exige
+  aprovacao humana. Prefira o caminho de menor privilegio: credencial read-only em vez da credencial
+  administrativa.
+- Nao dependa de `kubectl config current-context`: ele pode apontar para producao.
+- Para descobrir variaveis de um `.env`, use `make env-keys` (lista chaves sem valores) em vez de abrir
+  o arquivo.
+- Leitura de banco por cliente de linha de comando e **permitida** quando a conexao for read-only por
+  propriedade (transacao read-only, `statement_timeout` e identificacao da aplicacao), para que a
+  restricao nao dependa da boa vontade da query.
+- Nunca copie valor de segredo, DSN com senha, token ou dado pessoal para report, fixture, spec, plano,
+  corpo de PR ou mensagem. Cite caminho e classe da credencial; nunca copie o valor.
+- Nao provisione role, nao rotacione segredo e nao altere IAM/RBAC: e handoff humano
+  (`automation/STOP_CONDITIONS.md`).
+- Nao enfraqueca os hooks: remover entrada de `.cursor/hooks.json`, tirar `failClosed` ou transformar
+  `deny`/`ask` em `allow` reprova `make guardrails`.
+- Nao instale wrapper de PATH sobre os binarios `aws`/`kubectl` e nao intercepte clientes de banco:
+  quebraria a vazao de testes e ferramental sem adicionar seguranca real.
+</file>
+
+<file path=".cursor/rules/architecture-boundaries.mdc">
+---
+description: Fronteiras hexagonais - dominio puro, aplicacao sem infra, SDKs so na borda, pkg livre de internal
+alwaysApply: true
+---
+
+# Architecture boundaries
+
+- `internal/domain` importa **somente** stdlib e o proprio dominio. Nenhum SDK, framework, driver ou
+  telemetria concreta.
+- `internal/application` nao importa adapters, frameworks HTTP, drivers, SDKs de vendor nem telemetria
+  concreta. Telemetria chega por port, injetada na composition root.
+- SDKs externos aparecem apenas em adapters ou na composition root (`internal/bootstrap`, `cmd/**`).
+  Um SDK vazando para o core transforma escolha de fornecedor em decisao arquitetural.
+- `pkg/**` nao depende de `internal/**`, exceto pela ponte publica declarada em `pkg/app`. Tipo
+  nao exportado nunca aparece em assinatura exportada, erro publico ou exemplo.
+- DTO de sistema externo fica no adapter. O core conhece o contrato canonico, nao o formato do vendor.
+- Wiring e composicao ficam na composition root, nao espalhados por construtores de dominio.
+- Gate executavel: `make check-architecture-boundaries` (agregado em `make guardrails`). Cada raiz e
+  opcional, entao o gate acompanha o crescimento do projeto em vez de exigir a arvore completa.
+- Aplique `skills/01-hexagonal-architecture/SKILL.md` e `skills/17-solid-go-ports/SKILL.md`.
+</file>
+
+<file path=".cursor/rules/ci-no-silent-skip.mdc">
+---
+description: Gate de CI roda de verdade - nada de skip silencioso em check obrigatorio
+alwaysApply: true
+---
+
+# CI: no silent skip
+
+- Gate obrigatorio em `make pre-pr`, `make guardrails` ou no CI nao pode passar por ausencia de
+  ferramenta. Toolchain faltando e **FAIL**, nao skip: um gate que se desliga sozinho nao e gate.
+- Skip legitimo e explicito e justificado (por exemplo, gate PR-scoped sem base ref local). Ele imprime
+  a razao, e nunca imprime `ok`.
+- `make guardrails` agrega os checks estruturais e nao mascara falha de nenhum deles; falha em qualquer
+  gate reprova o alvo agregado.
+- O job de detecao de race e obrigatorio e roda em paralelo com o de validacao; nao remova para acelerar
+  o pipeline.
+- `make pre-pr` e o CI ficam em sincronia. Gate que roda somente no CI transforma o PR no unico ponto de
+  descoberta de falha; gate que roda somente local nao protege a branch principal.
+- Excecao declarada: `check-governed-change` e PR-scoped por natureza, porque le o corpo do PR. Em
+  `push` ele imprime skip explicito. A protecao da branch principal contra mudanca governada sem trio
+  depende de branch protection exigindo PR — configure isso no repositorio; o gate sozinho nao cobre
+  push direto.
+- Nao transforme `deny`/`ask` de hook em `allow`, nem remova `failClosed`, para destravar entrega.
+  `make check-agent-hooks` reprova exatamente isso.
+- Nao comente, marque como skip nem envolva em condicional permissiva um teste que esteja falhando.
+  Corrija a causa ou registre stop condition.
+</file>
+
+<file path=".cursor/rules/docs-sync-maintenance.mdc">
+---
+description: Superficie de navegacao e catalogo de capacidades acompanham a mudanca, no mesmo patch
+globs: "{pkg,internal,api,cmd}/**/*.go"
+alwaysApply: false
+---
+
+# Docs sync maintenance
+
+- Quando a mudanca altera comportamento observavel, API publica, contrato ou fluxo operacional,
+  atualize no **mesmo patch** as superficies que descrevem isso: `docs/ai/capabilities.md`,
+  a jornada afetada em `docs/journeys/` e o `README.md` quando o fluxo de entrada mudar.
+- Nao adie atualizacao de doc para PR futuro. Doc atrasada e pior que doc ausente: ela afirma
+  capacidade que o codigo nao tem mais.
+- Nao declare capacidade sem artefato correspondente. Se o comando, script ou gate nao existe, ele entra
+  como gap declarado, nunca como entrega concluida.
+- `specs/010-feature-matrix.md` acompanha mudanca de cobertura, status ou paridade de uma feature.
+- ADR em `docs/decisions/` registra decisao de arquitetura ou governanca nao obvia, incluindo as
+  alternativas rejeitadas e o motivo.
+- Aplique `skills/21-documentation-open-source/SKILL.md`.
+</file>
+
+<file path=".cursor/rules/dual-model-plan-review.mdc">
+---
+description: Plano so executa depois de review registrado e verificavel (hash, TTL, artefato)
+alwaysApply: true
+---
+
+# Dual-model plan review
+
+- Antes de executar qualquer `.cursor/plans/*.plan.md`, verifique o bloco `review:` no frontmatter.
+  Sem `status` `APPROVED` ou `APPROVED_WITH_CHANGES`, o plano e `DRAFT_NOT_EXECUTABLE`.
+- Aplique `skills/27-dual-model-plan-review/SKILL.md`. Para preparar o gate, use
+  `skills/28-plan-review-autopilot/SKILL.md`.
+- Rode `make verify-plan-reviews` antes de executar. Falha do gate = plano `BLOCKED`, nao aviso.
+- Bloqueie a execucao quando faltar o artefato em `automation/PLAN_REVIEWS/`, quando `plan_sha256`
+  divergir do corpo atual ou quando o TTL tiver expirado. Hash divergente significa que o plano mudou
+  depois do review; nenhuma aprovacao verbal substitui isso.
+- `APPROVED_WITH_CHANGES` autoriza execucao somente depois de incorporar as mudancas exigidas e
+  recalcular o hash.
+- Planner e reviewer nunca sao o mesmo modelo. Autoaprovacao silenciosa nao e review.
+- `OPERATOR_FALLBACK` e ultimo recurso, exige `operator_fallback_reason` e e proibido para API publica
+  em `pkg/**`, contratos em `api/**`, migrations, auth, seguranca, segredos, concorrencia, semantica de
+  fila/DLQ/replay/idempotencia/ordenacao e ADRs.
+- Nao confunda veredito de review (`APPROVED`/`REJECTED`) com diagnostico de fase
+  (`PASS`/`PARTIAL`/`FAIL`/`BLOCKED`). Sao eixos diferentes e ambos precisam passar.
+- Nao enfraqueca `scripts/verify-plan-review.sh` para destravar entrega.
+</file>
+
+<file path=".cursor/rules/go-design-size.mdc">
+---
+description: Limites de tamanho de arquivo, funcao e port em Go, com allowlists que expiram
+globs: "**/*.go"
+alwaysApply: false
+---
+
+# Go design size
+
+- Arquivo: alvo 500 linhas, limite 800. Funcao: alvo 40 linhas, limite 80. Acima do limite, reprova.
+- Port (interface consumida por caso de uso): 1 a 3 metodos. Acima de 3 e aviso; acima de 5 reprova.
+  Port grande normalmente esconde duas responsabilidades - prefira dividir a pedir excecao.
+- Erro de auditoria, persistencia, fila ou IO nao pode ser descartado com `_ =`. Se for realmente
+  best-effort, marque com comentario `// best-effort:` explicando a consequencia, registre log ou
+  metrica, e adicione entrada na allowlist.
+- Excecoes vivem em `.guardrails/*.yaml` e exigem `path`, `rule`, `justification`, `owner`,
+  `expires_at` e `ref` (mais `symbol` nos gates por simbolo).
+- Entrada expirada **reprova** o gate. Divida tecnica aqui tem prazo, nao permanencia. Renovar exige
+  justificativa nova, nao mudar a data.
+- Apagar ou esvaziar uma allowlist nao passa no gate: arquivo ausente ou malformado e erro duro.
+- Gates executaveis: `make check-file-size`, `make check-function-size`, `make check-port-size`,
+  `make check-ignored-errors` (agregados em `make guardrails`).
+- Nao suba o limite para acomodar codigo novo. O limite existe para forcar a decisao de design que
+  esta sendo evitada.
+</file>
+
+<file path=".cursor/rules/governed-change-enforcement.mdc">
+---
+description: Mudanca em escopo governado exige BLG-NNNN + par dual-spec + plano revisado, declarados no PR
+alwaysApply: true
+---
+
+# Governed change enforcement
+
+Escopo governado: `pkg/**`, `internal/**`, `api/**`, `migrations/**`.
+
+- Antes de editar escopo governado, aplique `skills/29-governed-change-workflow/SKILL.md` e garanta o
+  trio: item `BLG-NNNN` em `docs/backlog/Backlog.md`, par dual-spec (construcao `NNN` + diagnostico
+  `NNN+1` terminado em `-diagnosis.md`) e plano com review aprovado.
+- O item de backlog precisa estar com `Status` em `ready_for_implementation`, `in_progress` ou `done`
+  no momento do PR. Item `candidate` nao autoriza implementacao.
+- Declare no corpo do PR as secoes `## Backlog`, `## Specs lidas`, `## Autopilot` e `## Regressao`.
+  O gate `scripts/check-governed-change.sh` cruza cada uma com o disco: backlog, specs, plano e review.
+- O plano citado em `## Autopilot` precisa passar em `scripts/verify-plan-review.sh`. Plano sem review
+  valido reprova o PR.
+- `automation/INTERACTIVE_STATE.json` e estado operacional efemero: nao versione a alteracao de state
+  no PR. A prova de trilha exigida pelo gate e o plano revisado.
+- Um arquivo em `.cursor/plans/**` nao substitui spec. Plano descreve execucao; spec descreve contrato.
+- Excecao ao escopo governado existe apenas em `.guardrails/governed-change-exceptions.yaml` com
+  `expires_at`. Entrada expirada que casa com arquivo alterado reprova o gate; nao renove sem decisao
+  registrada.
+- Nao contorne o gate editando o corpo do PR depois do check: o gate resolve o corpo vivo do PR por
+  numero, nao um payload em cache.
+- Identificadores sequenciais (`BLG-NNNN`, `specs/NNN`, `migrations/NNNN`) sao reservados no ultimo
+  momento antes do commit; aplique `skills/31-parallel-session-coordination/SKILL.md`.
+</file>
+
+<file path=".cursor/rules/http-security-tenant.mdc">
+---
+description: Rota publica exige auth, resolucao de tenant e rate limiting; identidade vem da credencial
+globs: "internal/adapters/http/**/*.go"
+alwaysApply: false
+---
+
+# HTTP security and tenant isolation
+
+- Toda rota publica passa por autenticacao, resolucao de tenant e rate limiting antes de alcancar o
+  caso de uso.
+- A identidade do {{DOMAIN_ACTOR}} deriva **da credencial**, nunca do payload, query string ou header
+  controlado pelo cliente. Campo de identidade vindo do corpo da requisicao e entrada do usuario, nao
+  autoridade de tenant - tratar como autoridade e IDOR por construcao.
+- Rota administrativa exige autenticacao **e** autorizacao explicita; estar autenticado nao basta.
+- O contrato publicado declara `securitySchemes` e seguranca por operacao. Contrato sem seguranca
+  declarada gera cliente que nao envia credencial.
+- Toda superficie multi-tenant precisa de teste negativo cross-tenant: provar que o tenant A nao
+  alcanca o dado do tenant B. Teste positivo sozinho nao cobre isolamento.
+- Headers de seguranca e limites de tamanho de corpo ficam na borda, nao em cada handler.
+- Gate executavel: `make check-public-route-security` (agregado em `make guardrails`). O gate cobre
+  cobertura de middleware e seguranca do contrato; a origem da identidade de tenant permanece regra
+  normativa e assunto de review.
+- Aplique `skills/02-tenant-auth-quotas/SKILL.md`, `skills/10-http-gin-openapi/SKILL.md` e
+  `skills/18-security-owasp-api/SKILL.md`.
+</file>
+
+<file path=".cursor/rules/observability.mdc">
+---
+description: Observabilidade - log estruturado, tracing na borda, metricas e redacao de dado sensivel
+globs: "internal/**/*.go"
+alwaysApply: false
+---
+
+# Observability
+
+- Log de producao e estruturado, com correlacao (request/trace) propagada por `context.Context`.
+  `log.Printf`, `fmt.Println` e afins **nao** entram em `internal/**` de producao: saida nao
+  estruturada e invisivel para qualquer stack de observabilidade.
+- Se a dependencia de telemetria esta declarada em `go.mod`, ela precisa estar realmente em uso.
+  Dependencia declarada e nao ligada e pior que ausencia: sugere cobertura que nao existe.
+- Tracing HTTP e instrumentado **uma vez na borda**, nao por handler. Camada dupla de span produz
+  trace duplicado e latencia inflada.
+- Metricas ficam num ponto unico de registro. Identificador de alta cardinalidade (id de tenant, id de
+  requisicao, e-mail) nunca vira label de metrica; use bucket ou omita.
+- Dado sensivel e credencial passam por redacao antes de qualquer log, span ou metrica.
+- Erro observavel que o contrato menciona precisa aparecer em log com nivel adequado, nao ser engolido.
+- Gate executavel: `make check-observability` (agregado em `make guardrails`).
+- Aplique `skills/12-observability-zap-otel-prom/SKILL.md`.
+</file>
+
+<file path=".cursor/rules/package-clean.mdc">
+---
+description: Artefato de entrega e repositorio sem build output nem dependencia instalada
+alwaysApply: true
+---
+
+# Package clean
+
+- Nao versione nem empacote: `.git`, `node_modules`, diretorio de coverage, perfil de coverage,
+  binario compilado, binario de teste (`*.test`) ou saida de build (`bin/`).
+- O gate olha para o que esta **git-tracked** e para o diretorio de entrega (`$PACKAGE_DIR`, `dist`,
+  `release`). Saida de build ignorada no workspace local nao e escaneada: o alvo e o que sobe, nao o
+  que existe na maquina.
+- `vendor/` so entra com excecao documentada e com prazo em `.guardrails/package-exceptions.yaml`.
+- Excecao exige `path`, `rule`, `justification`, `owner`, `expires_at` e `ref`; entrada expirada
+  reprova o gate.
+- Gate executavel: `make check-package-clean` (agregado em `make guardrails`).
+</file>
+
+<file path=".cursor/rules/parallel-session-safety.mdc">
+---
+description: Coordenacao entre sessoes paralelas - IDs, branches, PRs, backlog e infra compartilhada
+alwaysApply: true
+---
+
+# Parallel session safety
+
+- Assuma sessoes paralelas por padrao; aplique `skills/31-parallel-session-coordination/SKILL.md`
+  antes de reservar ID, criar branch ou publicar PR.
+- Trabalho que gera commit nasce em worktree dedicado a partir da base recem-fetchada; proibido
+  commitar do workspace principal quando houver trabalho em andamento nao relacionado.
+- Branch nomeada `{tipo}/blg{NNNN}-<slug>`; o ID no nome e a chave de deduplicacao entre sessoes.
+  Renumerou o ID antes de publicar? Renomeie a branch.
+- IDs sequenciais (`BLG-NNNN`, `specs/NNN`, `migrations/NNNN`, numero de skill, plan-id) sao
+  reservados no ultimo momento antes do commit e recalculados com **sort numerico** contra a base e
+  contra PRs abertos (titulo, branch e paths). Em colisao, renumere e revalide as referencias cruzadas.
+- Antes de `git push`/`gh pr create`: `git fetch`, `git ls-remote origin <branch>` e
+  `gh pr list --state open --head <branch>`. Gate executavel:
+  `scripts/check-parallel-collision.sh` (hook `beforeShellExecution` + `make guardrails`).
+- Push rejeitado por non-fast-forward = parar e integrar (Protocolo D). Force push e proibido.
+- Branch remota com trabalho de outra sessao integra-se por rebase com fast-forward provado
+  (`git merge-base --is-ancestor`); nunca sobrescrever. Depois de integrar, nao rebasear sobre a base:
+  isso reescreve commits alheios ja publicados.
+- `docs/backlog/Backlog.md` e arquivo unico: item novo sempre ao final da secao, rebase imediatamente
+  antes do push, e conflito preserva os itens de **ambas** as sessoes. O caso perigoso nao e o
+  conflito, e o merge que o git resolve sozinho e deixa dois itens com o mesmo ID.
+- Conflito em lockfile nao se resolve a mao: rebase e regenere com a toolchain.
+- Infra local compartilhada: nao recrie, migre ou semeie sem confirmar que nenhuma outra sessao a usa;
+  nunca derrube container de outro projeto por conflito de porta.
+- Apos `gh pr create`/`gh pr edit`: conferir `isDraft` e o estado final do PR.
+</file>
+
+<file path=".cursor/rules/plan-review-autopilot.mdc">
+---
+description: Prepara automaticamente o gate de review de planos sem burlar a governanca
+alwaysApply: true
+---
+
+# Plan review autopilot
+
+- Quando um plano estiver bloqueado por `review:` ausente, invalido, stale ou expirado, prepare o gate
+  aplicando `skills/28-plan-review-autopilot/SKILL.md` em vez de editar o frontmatter a mao.
+- Comandos permitidos: `make review-plan PLAN=<caminho>`, `make review-plan-turn-based PLAN=<caminho>`,
+  `python3 scripts/review-plan.py ...` e `make verify-plan-reviews`.
+- Preparacao altera **somente** o bloco `review:` do frontmatter e o artefato em
+  `automation/PLAN_REVIEWS/`. Nunca altere o corpo do plano durante a preparacao: isso invalidaria o
+  proprio hash que o gate confere.
+- Artefato `PENDING_REVIEW` nao e aprovacao. Diga explicitamente que o plano continua nao executavel
+  ate existir evidencia de reviewer independente.
+- Nao execute o plano funcional antes de `make verify-plan-reviews` passar, mesmo com pedido explicito
+  para seguir.
+- `DUAL_TURN_BASED` e o modo default seguro quando nao ha provider de review configurado.
+  `DUAL_AUTOMATED` exige `PLAN_REVIEW_API_KEY` e modelos distintos; sem isso, nao finja aprovacao.
+- `OPERATOR_FALLBACK` permanece proibido em area de alto risco, mesmo durante preparacao.
+- Explique o bloqueio em linguagem direta, citando qual condicao falhou (hash, TTL, artefato, reviewer).
+</file>
+
+<file path=".cursor/rules/pr-body-gate.mdc">
+---
+description: Valida o corpo do PR com o gate executavel antes de gh pr create/edit
+alwaysApply: true
+---
+
+# PR body gate
+
+- Proibido `gh pr create` ou `gh pr edit --body*` sem antes validar o body-file com
+  `make pre-pr PR_BODY=<arquivo>` (exit 0) na branch atual.
+- O corpo do PR e sempre autorado em arquivo no workspace (ex.: `.pr-body-<topico>.md`) e passado via
+  `--body-file`; nunca inline (`--body`) nem editado apenas na UI. Corpo inline nao e revisavel nem
+  reproduzivel.
+- Secoes obrigatorias (headers `## ` reais) estao em `.github/PULL_REQUEST_TEMPLATE.md`. Mudanca em
+  escopo governado exige tambem `## Backlog`, `## Autopilot` e `## Regressao`.
+- Prefira `scripts/create-pr-from-template.sh --body-file <arquivo>`, que valida o corpo antes de criar
+  o PR.
+- Apos editar o corpo de um PR existente, rode `make pre-pr PR_BODY=<arquivo>` de novo; o CI tambem
+  re-roda no evento `edited`.
+- Gates executaveis: `scripts/check-pr-body.sh` (secoes e placeholders) e
+  `scripts/check-governed-change.sh` (trio do escopo governado).
+- Em CI `pull_request`, se o payload do evento estiver stale ou vazio, o gate re-le o corpo vivo por
+  `pull_request.number` (`scripts/resolve-pr-body-by-number.sh`). Nao reutilize
+  `resolve-open-pr-body.sh`, que depende da branch e falha com HEAD detached.
+- PRs de atualizacao automatica de dependencia sao excecao formal ao corpo completo do template quando
+  registrados em `docs/ai/compliance-exceptions.md`; bumps que toquem escopo governado ainda exigem o
+  trio completo.
+</file>
+
+<file path=".cursor/rules/pre-pr-before-push.mdc">
+---
+description: Exige make pre-pr com exit 0 antes de git push ou criacao de PR
+alwaysApply: true
+---
+
+# Pre-PR gate (mandatory)
+
+- **Proibido** `git push` ou `gh pr create` sem `make pre-pr` com exit 0 na branch atual.
+- Checks parciais (`make test`, `make lint`, um subconjunto de `make guardrails`) **nao substituem**
+  `make pre-pr`. O valor do alvo agregado e justamente nao deixar escolher quais gates rodar.
+- Ao abrir PR, preencha `## Comandos executados` e `## Testes executados` com a saida de `make pre-pr`.
+- Se `pre-pr` falhar: corrija, re-rode, so entao push. Nao empurre com falha conhecida prometendo
+  corrigir no proximo commit.
+- `make pre-pr PR_BODY=<arquivo>` valida tambem o corpo do PR. Sem `PR_BODY`, o gate de governed change
+  resolve o corpo do PR aberto da branch via `gh` (fail-closed).
+- `make pre-pr` deve ser mantido em sincronia com o CI: gate que roda no CI e nao roda localmente
+  transforma o PR em unico ponto de descoberta de falha.
+- Aplique `skills/15-devx-ci-precommit-changelog/SKILL.md`.
+</file>
+
+<file path=".cursor/rules/regression-coverage-required.mdc">
+---
+description: Cobertura regressiva obrigatoria para mudanca em escopo governado
+alwaysApply: true
+---
+
+# Regression coverage required
+
+- Mudanca em escopo governado (`pkg/**`, `internal/**`, `api/**`, `migrations/**`) declara no corpo do
+  PR a secao `## Regressao` com o item `BLG-NNNN` e o cenario alvo em `test/<pacote>::<cenario>`.
+- A declaracao e uma obrigacao rastreavel, nao uma promessa: se o cenario ainda nao existe, ele entra
+  como item de backlog com prazo, e isso fica visivel no PR.
+- O cenario de conformidade e implementado em PR isolado (ver `.cursor/rules/test-suite-session-isolation.mdc`).
+  PR de feature nao edita a suite de conformidade.
+- Teste unitario e de comportamento ao lado do codigo continuam obrigatorios no mesmo patch da mudanca.
+- Bug corrigido ganha teste que falha antes da correcao. Sem isso, nada impede a regressao voltar.
+- Gate executavel: `scripts/check-governed-change.sh` valida a presenca e a coerencia da secao
+  `## Regressao` (item igual ao do `## Backlog`, cenario dentro da arvore de testes).
+</file>
+
+<file path=".cursor/rules/sdd-non-negotiable.mdc">
+---
+description: SDD nao negociavel - diagnosticar, especificar, dual-spec e registrar causa antes do codigo
+alwaysApply: true
+---
+
+# SDD non-negotiable
+
+- Antes de planejar ou implementar, leia `AGENTS.md`, `skills/00-skill-index/SKILL.md` e a spec ou ADR
+  governante.
+- Produza diagnostico antes de editar e declare as specs afetadas.
+- Toda mudanca de comportamento, arquitetura ou contrato atualiza a spec de construcao E a spec de
+  diagnostico na mesma alteracao. Spec de construcao sozinha e gap de especificacao.
+- Mudancas em `pkg/**`, `internal/**`, `api/**` ou `migrations/**` exigem spec, ADR ou change record
+  versionado correspondente. Um plano em `.cursor/plans/**` nao substitui spec: plano descreve
+  execucao, spec descreve contrato.
+- Nao implemente feature sem plano revisado quando a mudanca tocar contrato, arquitetura, seguranca ou
+  dados persistidos.
+- Registre causa da alteracao e validacao executada na resposta e no corpo do PR.
+- Gates executaveis: `scripts/check-sdd-compliance.sh` (spec/ADR acompanha o diff, e par dual-spec
+  existe) e `make verify-plan-reviews` (plano revisado).
+- Se a spec faltar ou estiver ambigua, pare e registre o gap. Nao preencha a lacuna por inferencia.
+</file>
+
+<file path=".cursor/rules/test-suite-session-isolation.mdc">
+---
+description: Suite de conformidade e o contrato executavel - nao viaja no mesmo PR da feature que valida
+alwaysApply: true
+---
+
+# Conformance suite isolation
+
+- `test/conformance/**` e o contrato executavel. Em sessao de feature, trate essa arvore como
+  **read-only**.
+- Nunca misture alteracao da suite de conformidade com codigo governado no mesmo commit, branch ou PR.
+  Motivo: um PR que muda o teste de contrato junto com a feature que ele valida sempre pode ficar verde
+  enfraquecendo o teste.
+- Alteracao da suite de conformidade acontece em branch e PR dedicados, com justificativa propria e
+  revisao explicita do que o contrato passou a permitir.
+- Isso **nao** dispensa teste junto da mudanca: teste unitario ao lado do codigo, fixture e baseline de
+  seguranca continuam obrigatorios no mesmo patch. O escopo isolado e apenas a suite de conformidade.
+- Gate executavel: `make check-test-isolation` (agregado em `make guardrails`). O prefixo protegido e
+  configuravel por `TEST_ISOLATION_PROTECTED_PREFIX`.
+</file>
+
+<file path=".cursor/rules/third-party-service-integrations.mdc">
+---
+description: Servico externo exige port/adapter e credencial cifrada por tenant
+globs: "internal/**/*.go"
+alwaysApply: false
+---
+
+# Third-party integrations
+
+- Para qualquer integracao com sistema externo, ou tool de agente que chame para fora do processo,
+  aplique `skills/30-third-party-service-integrations/SKILL.md`.
+- Defina port pequeno na camada de aplicacao; SDK, cliente HTTP, DTO externo e auth ficam no adapter.
+- Credencial e escopada por {{DOMAIN_ACTOR}} e chave de servico, cifrada em repouso, com cache de TTL
+  explicito e limitado. Cache sem invalidacao transforma credencial revogada em credencial ativa.
+- Invalide o cache apos atualizacao da credencial, antes de considerar a mudanca concluida.
+- Nunca faca fallback silencioso para credencial global compartilhada: isso quebra isolamento por
+  tenant sem deixar rastro.
+- Aplique deadline de contexto, timeout, retry limitado com backoff e circuit breaker quando aplicavel.
+  Erro de provider e mapeado para erro de aplicacao sanitizado, nunca repassado cru.
+- Observabilidade preserva correlacao, chave de servico, resultado e latencia, sem token nem dado
+  pessoal.
+- Se a integracao expoe endpoint de configuracao, atualize o contrato publicado e o cliente tipado.
 </file>
 
 <file path=".cursor/rules/{{PROJECT_SLUG}}-autopilot-core.mdc">
@@ -198,14 +2081,34 @@ indent_size = 2
 
 Descreva o resultado observavel desta mudanca.
 
+## Backlog
+
+Item governado desta mudanca, ou `none` quando o PR nao toca `pkg/**`, `internal/**`, `api/**` nem `migrations/**`.
+
+- `BLG-NNNN` (`docs/backlog/Backlog.md`), com `Status` em `ready_for_implementation`, `in_progress` ou `done`
+
 ## Specs lidas
 
 - [ ] `AGENTS.md`
 - [ ] spec(s) governante(s) citadas abaixo
 
-Liste as specs e secoes aplicaveis:
+Liste as specs e secoes aplicaveis. Escopo governado exige o par dual-spec (construcao `NNN` + diagnostico `NNN+1`):
 
 - `specs/...`
+
+## Autopilot
+
+Plano revisado desta mudanca, ou `none` fora do escopo governado.
+
+- Plano: `.cursor/plans/<id>.plan.md`
+- Veredito: `automation/PLAN_REVIEWS/<id>.md`
+- `make verify-plan-reviews`: `PASS`
+
+## Regressao
+
+Cobertura regressiva desta mudanca, ou `none` fora do escopo governado.
+
+- `BLG-NNNN` + cenario alvo em `test/<pacote>::<cenario>`
 
 ## Skills aplicadas
 
@@ -294,6 +2197,9 @@ name: ci
 
 on:
   pull_request:
+    # `edited` matters: the governed-change gate reads the PR body, so editing the
+    # body must re-run the gate instead of leaving a stale verdict.
+    types: [opened, synchronize, reopened, edited]
   push:
 
 jobs:
@@ -342,6 +2248,41 @@ jobs:
 
       - name: Race
         run: make race
+
+  governance:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Full history: the governance gates diff against the base ref, which a
+      # shallow clone cannot resolve.
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve base ref
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --no-tags origin "${{ github.base_ref }}"
+          echo "BASE_REF=origin/${{ github.base_ref }}" >> "$GITHUB_ENV"
+
+      - name: Agent hooks wiring
+        run: make check-agent-hooks
+
+      - name: Hook selftests
+        run: make hook-selftests
+
+      - name: Guardrails
+        run: make guardrails
+
+      - name: Plan reviews
+        run: make verify-plan-reviews
+
+      - name: Governed change
+        if: github.event_name == 'pull_request'
+        run: make check-governed-change
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 </file>
 
 <file path=".gitignore">
@@ -363,6 +2304,122 @@ coverage.out
 # Generated
 dist/
 .tmp/
+
+# Agent hook audit trail (local evidence, may reference target environments)
+.cursor/hooks/.agent-cloud-access-audit.log
+
+# Python bytecode from the repo-local helper modules used by the gates
+__pycache__/
+*.pyc
+</file>
+
+<file path=".guardrails/README.md">
+# Guardrail allowlists
+
+Cada arquivo aqui e a lista de excecoes de um gate estrutural. O ponto central:
+**excecao tem prazo**. Uma entrada com `expires_at` no passado nao e ignorada nem
+avisada, ela reprova o gate. Divida tecnica registrada aqui e divida com data de
+vencimento, nao permissao permanente.
+
+## Formato
+
+```yaml
+version: 1
+exceptions:
+  - path: internal/adapters/http/router.go
+    symbol: Router.Register
+    rule: function-size
+    justification: tabela de rotas declarativa; quebrar reduziria legibilidade
+    owner: nome-ou-time
+    expires_at: 2026-12-31
+    ref: BLG-0042
+```
+
+Campos obrigatorios em toda entrada: `path`, `rule`, `justification`, `owner`,
+`expires_at`, `ref`. Gates com escopo por simbolo (`function-size`, `port-size`,
+`ignored-error`) exigem tambem `symbol`.
+
+Um arquivo ausente ou malformado e **erro duro**, nunca "sem excecoes": apagar a
+allowlist nao pode ser um jeito de passar no gate. Se nao houver excecoes, o
+arquivo existe com `exceptions: []`.
+
+## Arquivos
+
+| Arquivo | Gate | Escopo da chave |
+|---|---|---|
+| `function-size-exceptions.yaml` | `guardrails funcsize` | `path` + `symbol` |
+| `port-size-exceptions.yaml` | `guardrails portsize` | `path` + `symbol` |
+| `ignored-error-exceptions.yaml` | `guardrails ignored-errors` | `path` + `symbol` (nome da funcao chamada) |
+| `public-route-exceptions.yaml` | `guardrails public-route` | `path` (`METODO /rota` ou arquivo de contrato) |
+| `package-exceptions.yaml` | `scripts/check-package-clean.sh` | prefixo de `path` |
+| `governed-change-exceptions.yaml` | `scripts/check-governed-change.sh` | glob de `path` |
+
+## Verificacao
+
+```bash
+make guardrails                                    # roda todos os gates
+go run ./tools/guardrails allowlist-paths .guardrails/package-exceptions.yaml
+```
+</file>
+
+<file path=".guardrails/function-size-exceptions.yaml">
+# Allowlist de excecoes do gate correspondente.
+#
+# Toda entrada exige: path, rule, justification, owner, expires_at (YYYY-MM-DD) e
+# ref. Gates com escopo por simbolo exigem tambem symbol.
+# Entrada expirada REPROVA o gate: divida tecnica aqui tem prazo, nao permanencia.
+version: 1
+exceptions: []
+</file>
+
+<file path=".guardrails/governed-change-exceptions.yaml">
+# Allowlist de excecoes do gate correspondente.
+#
+# Toda entrada exige: path, rule, justification, owner, expires_at (YYYY-MM-DD) e
+# ref. Gates com escopo por simbolo exigem tambem symbol.
+# Entrada expirada REPROVA o gate: divida tecnica aqui tem prazo, nao permanencia.
+version: 1
+exceptions: []
+</file>
+
+<file path=".guardrails/ignored-error-exceptions.yaml">
+# Allowlist de excecoes do gate correspondente.
+#
+# Toda entrada exige: path, rule, justification, owner, expires_at (YYYY-MM-DD) e
+# ref. Gates com escopo por simbolo exigem tambem symbol.
+# Entrada expirada REPROVA o gate: divida tecnica aqui tem prazo, nao permanencia.
+version: 1
+exceptions: []
+</file>
+
+<file path=".guardrails/package-exceptions.yaml">
+# Allowlist de excecoes do gate correspondente.
+#
+# Toda entrada exige: path, rule, justification, owner, expires_at (YYYY-MM-DD) e
+# ref. Gates com escopo por simbolo exigem tambem symbol.
+# Entrada expirada REPROVA o gate: divida tecnica aqui tem prazo, nao permanencia.
+version: 1
+exceptions: []
+</file>
+
+<file path=".guardrails/port-size-exceptions.yaml">
+# Allowlist de excecoes do gate correspondente.
+#
+# Toda entrada exige: path, rule, justification, owner, expires_at (YYYY-MM-DD) e
+# ref. Gates com escopo por simbolo exigem tambem symbol.
+# Entrada expirada REPROVA o gate: divida tecnica aqui tem prazo, nao permanencia.
+version: 1
+exceptions: []
+</file>
+
+<file path=".guardrails/public-route-exceptions.yaml">
+# Allowlist de excecoes do gate correspondente.
+#
+# Toda entrada exige: path, rule, justification, owner, expires_at (YYYY-MM-DD) e
+# ref. Gates com escopo por simbolo exigem tambem symbol.
+# Entrada expirada REPROVA o gate: divida tecnica aqui tem prazo, nao permanencia.
+version: 1
+exceptions: []
 </file>
 
 <file path=".pre-commit-config.yaml">
@@ -426,6 +2483,8 @@ repos:
 - `automation/AUTOPILOT.md`, `automation/RUNBOOK.md`, `automation/ROADMAP.json` e `automation/PHASE_STATE.json` governam o modo `phase_autopilot`.
 - `automation/INTERACTIVE_AUTOPILOT.md`, `automation/INTERACTIVE_RUNBOOK.md` e `automation/INTERACTIVE_STATE.json` governam trilhas interativas de feature request.
 - `docs/backlog/Backlog.md` e o backlog canonico para itens governados; fontes historicas em `docs/backlog/**` nao viram itens implementaveis sem triagem pela skill `skills/26-backlog-item-intake/SKILL.md`.
+- `.cursor/rules/**` sao guardrails normativos aplicados pelo agente, e `.cursor/hooks/**` sao controles executaveis no runtime do editor; nenhum dos dois substitui spec, e enfraquecer um deles (remover entrada, tirar `failClosed`) reprova `make guardrails`.
+- `automation/PLAN_REVIEWS/**` guarda os vereditos de review de plano; `.guardrails/*.yaml` guarda excecoes de gate com prazo obrigatorio.
 - `docs/decisions/` (ADRs) registra decisoes de arquitetura e governanca; `docs/release-versioning-policy.md`, `docs/release-notes-policy.md` e `docs/release-checklist.md` governam versionamento, changelog e release notes alinhados a `skills/22-release-versioning-governance/SKILL.md`.
 - `docs/README.md`, `docs/ai/capabilities.md` e `docs/journeys/` sao superficies de navegacao e descoberta; elas nao substituem as specs nem este documento como fonte normativa.
 - Se houver conflito entre implementacao existente e spec aprovada, a spec prevalece.
@@ -452,7 +2511,12 @@ repos:
 - Para planejamento de fases SDD, geracao de prompts de autopilot, specs de construcao e diagnostico, reconciliacao, readiness/release gates ou qualquer continuidade ultra-rigida evidence-first, usar `skills/25-{{PROJECT_SLUG}}-ultra-rigid-sdd/SKILL.md`.
 - Em trilhas interativas, o report da etapa e a fonte de verdade para avanco; testes verdes ou narrativa nao satisfazem gate.
 - Parar imediatamente quando uma stop condition de `automation/STOP_CONDITIONS.md` ocorrer.
+- Para mudanca em escopo governado (`pkg/**`, `internal/**`, `api/**`, `migrations/**`), aplicar `skills/29-governed-change-workflow/SKILL.md`: item `BLG-NNNN` no backlog, par dual-spec e plano com review aprovado antes do PR. O gate executavel e `scripts/check-governed-change.sh`.
+- Nao executar plano em `.cursor/plans/**` sem review valido: `make verify-plan-reviews` precisa passar, com hash do corpo do plano casando e TTL vigente (`skills/27-dual-model-plan-review/SKILL.md`).
+- Assumir sessoes paralelas por padrao: reservar `BLG-NNNN`, `specs/NNN` e `migrations/NNNN` no ultimo momento antes do commit e aplicar `skills/31-parallel-session-coordination/SKILL.md`. Force push para resolver colisao e proibido.
 - Antes de commitar codigo Go, rodar `make fmt` para garantir formatacao `gofmt`. O CI rejeita PRs com arquivos fora do padrao gofmt.
+- Antes de `git push` ou `gh pr create`, rodar `make pre-pr` com exit 0. Checks parciais nao substituem o alvo agregado.
+- Acesso a nuvem e credenciais segue `.cursor/rules/agent-cloud-access.mdc` e `docs/runbooks/agent-cloud-access.md`: alvo explicito em `aws`/`kubectl`, nenhuma mutacao em producao, e valor de segredo nunca copiado para artefato.
 - Ao abrir PR, usar `.github/PULL_REQUEST_TEMPLATE.md` como corpo base obrigatorio.
 - Preferir `scripts/create-pr-from-template.sh` em vez de `gh pr create` direto para reduzir drift no corpo do PR.
 - Se um PR for criado sem todas as secoes obrigatorias do template, o agente deve corrigi-lo antes de encerrar a tarefa.
@@ -581,6 +2645,11 @@ repos:
 - Governança de diagnósticos `agent-readiness`: [`skills/24-agent-readiness-governance/SKILL.md`](skills/24-agent-readiness-governance/SKILL.md).
 - SDD ultra-rígido / prompts / fases / gates evidence-first: [`skills/25-{{PROJECT_SLUG}}-ultra-rigid-sdd/SKILL.md`](skills/25-{{PROJECT_SLUG}}-ultra-rigid-sdd/SKILL.md).
 - Backlog governado (intake, triagem, classificação, prompts autopilot): [`skills/26-backlog-item-intake/SKILL.md`](skills/26-backlog-item-intake/SKILL.md).
+- Gate de review de plano (veredito registrado, hash, TTL): [`skills/27-dual-model-plan-review/SKILL.md`](skills/27-dual-model-plan-review/SKILL.md).
+- Preparação do gate de review sem burlá-lo: [`skills/28-plan-review-autopilot/SKILL.md`](skills/28-plan-review-autopilot/SKILL.md).
+- Fluxo mestre de mudança em escopo governado: [`skills/29-governed-change-workflow/SKILL.md`](skills/29-governed-change-workflow/SKILL.md).
+- Integrações com serviços externos (ports, credencial por tenant, resiliência): [`skills/30-third-party-service-integrations/SKILL.md`](skills/30-third-party-service-integrations/SKILL.md).
+- Coordenação entre sessões paralelas (IDs, branches, PRs, infra compartilhada): [`skills/31-parallel-session-coordination/SKILL.md`](skills/31-parallel-session-coordination/SKILL.md).
 </file>
 
 <file path="CHANGELOG.md">
@@ -619,6 +2688,14 @@ Contribuições — humanas ou assistidas por AI — seguem o mesmo fluxo govern
 2. Prepare o ambiente: `make setup` e confirme a baseline com `make check-compliance` e `make test`.
 3. Primeira contribuição? Siga [docs/journeys/01-primeira-contribuicao.md](docs/journeys/01-primeira-contribuicao.md).
 
+### Dependências de desenvolvimento
+
+Além do Go e do `git`:
+
+- `python3`: usado pelos hooks de segurança em `.cursor/hooks/`, pelo gate de review de plano (`scripts/review-plan.py`) e pelos gates que fazem parsing estruturado. Ausência de `python3` faz os hooks degradarem fail-closed (`ask`) e reprova os gates que dependem dele — nunca passa em silêncio.
+- `gh` (GitHub CLI): opcional, mas sem ele o gate de mudança governada não consegue provar que não existe PR aberto, e a varredura de colisão entre sessões paralelas perde uma das três fontes.
+- `pre-commit`: para rodar `pre-commit run --all-files`.
+
 ## Abrindo uma tarefa
 
 Use [docs/ai/task-input-format.md](docs/ai/task-input-format.md) para estruturar o pedido: objetivo, specs lidas, arquivos em escopo, entregáveis mínimos, validações obrigatórias e formato de saída. O contrato mínimo de contribuição está em [docs/ai/ai-contribution-contract.md](docs/ai/ai-contribution-contract.md).
@@ -627,7 +2704,9 @@ Nenhuma feature entra sem spec governante. Se a spec não existir ou estiver amb
 
 ## Validando e abrindo PR
 
-- Rode os checks aplicáveis: `make fmt-check`, `make lint`, `make vet`, `make test`, `make race`, `make test-security` e `pre-commit run --all-files`.
+- Rode `make pre-pr` com exit 0 antes de `git push` ou `gh pr create`. Ele agrega formatação, lint, vet, `make guardrails`, testes, race, baseline de segurança e os gates de governança. Checks parciais não substituem o alvo agregado.
+- Se a mudança toca `pkg/**`, `internal/**`, `api/**` ou `migrations/**`, ela é governada: exige item `BLG-NNNN` no backlog, par dual-spec e plano com review aprovado. Comece por [skills/29-governed-change-workflow/SKILL.md](skills/29-governed-change-workflow/SKILL.md).
+- Assuma sessões paralelas: reserve `BLG-NNNN`, `specs/NNN` e `migrations/NNNN` no último momento antes do commit e siga [skills/31-parallel-session-coordination/SKILL.md](skills/31-parallel-session-coordination/SKILL.md).
 - Abra o PR com `scripts/create-pr-from-template.sh`; o corpo segue [.github/PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md) e é validado no CI por `make check-pr-body`.
 - Se alguma validação obrigatória não se aplicar, registre a exceção formal em [docs/ai/compliance-exceptions.md](docs/ai/compliance-exceptions.md) — exceções informais não valem.
 </file>
@@ -646,7 +2725,13 @@ STATICCHECK_VERSION ?= latest
 GOVULNCHECK_VERSION ?= latest
 GOFILES := $(shell find . -type f -name '*.go' -not -path './vendor/*')
 
-.PHONY: setup bootstrap test test-security security-tests vulncheck secrets-check lint fmt fmt-check race coverage vet check-compliance check-pr-body check-file-size
+PLAN ?=
+PR_BODY ?=
+
+.PHONY: setup bootstrap test test-security security-tests vulncheck secrets-check lint fmt fmt-check race coverage vet check-compliance check-pr-body check-file-size check-agent-hooks hook-selftests env-keys check-sdd-compliance check-governed-change verify-plan-reviews verify-plan-reviews-all review-plan review-plan-turn-based check-parallel-collision check-parallel-collision-selftest \
+	check-architecture-boundaries check-function-size check-port-size check-ignored-errors \
+	check-observability check-package-clean check-public-route-security check-test-isolation \
+	guardrails pre-pr
 
 setup:
 	@command -v $(GO) >/dev/null 2>&1 || { echo "go not found; install Go 1.26.4+ from https://go.dev/dl/"; exit 1; }
@@ -704,6 +2789,81 @@ check-pr-body:
 
 check-file-size:
 	./scripts/check-file-size.sh
+
+check-agent-hooks:
+	./scripts/check-agent-hooks.sh
+
+hook-selftests:
+	./.cursor/hooks/agent-cloud-access-guard-selftest.sh
+	./.cursor/hooks/env-read-guard-selftest.sh
+
+env-keys:
+	./scripts/env-keys.sh
+
+check-sdd-compliance:
+	./scripts/check-sdd-compliance.sh
+
+check-parallel-collision:
+	./scripts/check-parallel-collision.sh
+
+check-parallel-collision-selftest:
+	./scripts/check-parallel-collision-selftest.sh
+
+check-architecture-boundaries:
+	./scripts/check-architecture-boundaries.sh
+
+check-function-size:
+	./scripts/check-function-size.sh
+
+check-port-size:
+	./scripts/check-port-size.sh
+
+check-ignored-errors:
+	./scripts/check-ignored-errors.sh
+
+check-observability:
+	./scripts/check-observability.sh
+
+check-package-clean:
+	./scripts/check-package-clean.sh
+
+check-public-route-security:
+	./scripts/check-public-route-security.sh
+
+check-test-isolation:
+	./scripts/check-test-isolation.sh
+
+# Aggregated structural gates. Failure in any one fails the target: an aggregate
+# that hides a failing gate is worse than no aggregate.
+guardrails: check-compliance check-agent-hooks check-architecture-boundaries check-file-size \
+	check-function-size check-port-size check-ignored-errors check-observability \
+	check-package-clean check-public-route-security check-test-isolation \
+	check-sdd-compliance check-parallel-collision check-parallel-collision-selftest \
+	hook-selftests
+
+# Mandatory before git push or PR creation. Mirrors CI plus the governance gates.
+pre-pr: fmt-check lint vet guardrails test race test-security verify-plan-reviews check-governed-change
+	@if [ -n "$(PR_BODY)" ]; then ./scripts/check-pr-body.sh --body-file $(PR_BODY); fi
+	@echo "pre-pr: ok"
+
+check-governed-change:
+	./scripts/check-governed-change.sh $(PR_BODY)
+
+# Diff-scoped: only plans touched by this branch must carry a valid review, so an
+# unrelated plan whose TTL lapsed on the base branch does not block the PR.
+verify-plan-reviews:
+	./scripts/verify-plan-review.sh --changed
+
+verify-plan-reviews-all:
+	./scripts/verify-plan-review.sh --all-strict
+
+review-plan:
+	@test -n "$(PLAN)" || { echo "usage: make review-plan PLAN=.cursor/plans/<id>.plan.md"; exit 1; }
+	python3 scripts/review-plan.py --plan $(PLAN)
+
+review-plan-turn-based:
+	@test -n "$(PLAN)" || { echo "usage: make review-plan-turn-based PLAN=.cursor/plans/<id>.plan.md"; exit 1; }
+	python3 scripts/review-plan.py --plan $(PLAN) --mode DUAL_TURN_BASED
 </file>
 
 <file path="README.md">
@@ -1533,6 +3693,51 @@ Avance somente se classification = PASS e decision autorizar.
   "blocked": false,
   "block_reason": ""
 }
+</file>
+
+<file path="automation/PLAN_REVIEWS/README.md">
+# Plan Reviews
+
+Este diretorio guarda os **vereditos de review de plano**. Um plano em `.cursor/plans/*.plan.md` so e
+executavel quando existe aqui um artefato correspondente e o bloco `review:` do plano aponta para ele
+com o hash correto.
+
+Contrato completo: [`skills/27-dual-model-plan-review/SKILL.md`](../../skills/27-dual-model-plan-review/SKILL.md).
+Preparacao operacional: [`skills/28-plan-review-autopilot/SKILL.md`](../../skills/28-plan-review-autopilot/SKILL.md).
+
+## Nomeacao
+
+- Primeiro review de um plano: `<plan-id>.md`, onde `<plan-id>` e o nome do plano sem `.plan.md`.
+- Reviews posteriores do mesmo plano: `<plan-id>-v2.md`, `<plan-id>-v3.md`, e assim por diante.
+- Artefato mergeado e **append-only**: nunca edite um veredito publicado; crie o sucessor versionado.
+
+## Por que o hash existe
+
+O campo `plan_sha256` cobre o **corpo** do plano (tudo depois do frontmatter). Se o corpo mudar depois
+do review, o hash deixa de casar e `scripts/verify-plan-review.sh` reprova. Isso e o que impede o
+padrao "aprova um plano pequeno, depois cresce o plano".
+
+Por isso a preparacao do review nunca altera o corpo: `scripts/review-plan.py` escreve somente o
+bloco `review:` no frontmatter.
+
+## Comandos
+
+```bash
+make review-plan PLAN=.cursor/plans/<id>.plan.md              # prepara artefato
+make review-plan-turn-based PLAN=.cursor/plans/<id>.plan.md   # prepara em modo turn-based
+make verify-plan-reviews                                       # valida todos os planos alterados
+scripts/verify-plan-review.sh --plan .cursor/plans/<id>.plan.md # valida um plano, estrito
+```
+
+`make verify-plan-reviews` nao chama modelo e nao exige API key: ele valida artefatos. E isso que
+permite rodar o gate em CI.
+
+## O que um veredito precisa conter
+
+No minimo: identidade do plano, caminho de review (`DUAL_AUTOMATED`, `DUAL_TURN_BASED` ou
+`OPERATOR_FALLBACK`), modelos planner e reviewer, data com timezone, TTL, o `plan_sha256` verbatim e o
+resultado do checklist. Template copiavel em
+[`skills/27-dual-model-plan-review/resources/verdict_template.md`](../../skills/27-dual-model-plan-review/resources/verdict_template.md).
 </file>
 
 <file path="automation/ROADMAP.json">
@@ -2523,6 +4728,38 @@ Estados:
 - Como ativar: leia `AGENTS.md` e o índice de skills antes de qualquer edição; o roteamento por intenção está na tabela do índice.
 - Evidência: PRs declarando specs lidas e skills aplicadas, conforme o template de PR.
 - Limites: as skills de infraestrutura (02–04, 06–12, 14, 18–19) são guidance herdada para quando o produto exigir aquela stack; nenhuma dependência de Redis, SQS, Postgres, Gin ou gRPC está instalada.
+
+### Segurança de acesso do agente
+
+- Tipo: `automático`. Estado: `baseline entregue`.
+- Artefatos: [.cursor/hooks/agent-cloud-access-guard.py](../../.cursor/hooks/agent-cloud-access-guard.py), [.cursor/hooks/env-read-guard.py](../../.cursor/hooks/env-read-guard.py), [.cursor/hooks/cloud-access-config.json](../../.cursor/hooks/cloud-access-config.json), [scripts/check-agent-hooks.sh](../../scripts/check-agent-hooks.sh), [docs/runbooks/agent-cloud-access.md](../runbooks/agent-cloud-access.md).
+- Como ativar: preencha `dev_markers` e `prod_markers` em `cloud-access-config.json` com os identificadores reais do projeto. Sem isso o comportamento é restritivo: todo alvo fica indeterminado, mutação é negada e leitura exige aprovação.
+- Evidência: `make check-agent-hooks` e `make hook-selftests` verdes; decisões diferentes de `allow` ficam registradas em `.cursor/hooks/.agent-cloud-access-audit.log` sem o comando bruto.
+- Limites: reduz acidente, não detém ator malicioso. É contornável por `eval`, `bash -c` ou wrapper de PATH, não observa chamadas feitas por bibliotecas dentro do processo, e não substitui IAM/RBAC.
+
+### Mudança governada e review de plano
+
+- Tipo: `automático` + `processual`. Estado: `baseline entregue`.
+- Artefatos: [scripts/check-governed-change.sh](../../scripts/check-governed-change.sh), [scripts/verify-plan-review.sh](../../scripts/verify-plan-review.sh), [scripts/review-plan.py](../../scripts/review-plan.py), [automation/PLAN_REVIEWS/README.md](../../automation/PLAN_REVIEWS/README.md), skills [27](../../skills/27-dual-model-plan-review/SKILL.md), [28](../../skills/28-plan-review-autopilot/SKILL.md) e [29](../../skills/29-governed-change-workflow/SKILL.md).
+- Como ativar: mudança em `pkg/**`, `internal/**`, `api/**` ou `migrations/**` declara no corpo do PR item `BLG-NNNN`, par dual-spec, plano revisado e cenário de regressão. Plano só executa após `make verify-plan-reviews` passar.
+- Evidência: `make pre-pr` verde e veredito em `automation/PLAN_REVIEWS/` cujo `plan_sha256` casa com o corpo atual do plano.
+- Limites: o gate valida artefatos, não chama modelo — CI não precisa de API key. `DUAL_AUTOMATED` exige integração de provider que o starter não configura; o modo default seguro é `DUAL_TURN_BASED`.
+
+### Coordenação entre sessões paralelas
+
+- Tipo: `automático` + `processual`. Estado: `baseline entregue`.
+- Artefatos: [scripts/check-parallel-collision.sh](../../scripts/check-parallel-collision.sh), [.cursor/hooks/parallel-collision-guard.py](../../.cursor/hooks/parallel-collision-guard.py), skill [31](../../skills/31-parallel-session-coordination/SKILL.md).
+- Como ativar: reserve `BLG-NNNN`, `specs/NNN` e `migrations/NNNN` no último momento antes do commit; o gate cruza os IDs novos contra a base, PRs abertos e refs remotas.
+- Evidência: `make check-parallel-collision` verde antes de publicar, e branch nomeada com o ID efetivamente reservado.
+- Limites: a varredura de PRs abertos é heurística — um PR pode reservar um ID sem citá-lo em título, corpo, branch ou paths. `docs/backlog/Backlog.md` é arquivo único, mais sujeito a conflito de merge que um modelo de um arquivo por item; a mitigação é o Protocolo F da skill.
+
+### Gates estruturais de design Go
+
+- Tipo: `automático`. Estado: `baseline entregue`.
+- Artefatos: [tools/guardrails/](../../tools/guardrails/) (fronteiras arquiteturais, tamanho de função, tamanho de port, erro descartado, segurança de rota pública), wrappers `scripts/check-*.sh`, [.guardrails/README.md](../../.guardrails/README.md).
+- Como ativar: `make guardrails`. Exceção só existe em `.guardrails/*.yaml` com `expires_at`; entrada expirada reprova o gate.
+- Evidência: saída dos gates com contagem de arquivos escaneados, e allowlists sem entrada vencida.
+- Limites: cada raiz é opcional, então os gates acompanham o crescimento do projeto. A origem da identidade de tenant e o modelo de roteamento dinâmico ficam fora do alcance do gate e permanecem assunto de review.
 
 ### Spec Driven Development dual-spec
 
@@ -4217,6 +6454,84 @@ Esta policy operacionaliza no repositorio as mesmas fronteiras usadas pela skill
 
 </file>
 
+<file path="docs/runbooks/agent-cloud-access.md">
+# Runbook: acesso de agent a nuvem e credenciais
+
+Este runbook documenta os controles executaveis que limitam o que um agent pode fazer com `aws`,
+`kubectl` e arquivos `.env` neste repositorio, e o que esses controles **nao** garantem.
+
+A orientacao normativa correspondente esta em [`.cursor/rules/agent-cloud-access.mdc`](../../.cursor/rules/agent-cloud-access.mdc).
+
+## Controles
+
+| Controle | Evento | Arquivo | Comportamento em falha |
+|---|---|---|---|
+| Cloud access guard | `beforeShellExecution` (`aws`, `kubectl`) | `.cursor/hooks/agent-cloud-access-guard.sh` | fail-closed (`ask`) |
+| Env read guard | `preToolUse` (`Read`) | `.cursor/hooks/env-read-guard.sh` | fail-closed (`ask`) |
+| Gate de wiring | `make check-agent-hooks` | `scripts/check-agent-hooks.sh` | falha o build |
+
+O gate de wiring existe porque um controle que pode ser desligado em silencio nao e controle: ele
+reprova quando `.cursor/hooks.json` perde um guard, remove `failClosed` ou aponta para script ausente
+ou nao executavel.
+
+## Configuracao de ambiente
+
+Os marcadores que classificam o alvo de um comando ficam em
+`.cursor/hooks/cloud-access-config.json`:
+
+- `prod_markers`: nomes de profile, contexto e IDs de conta de producao.
+- `dev_markers`: idem para desenvolvimento/homologacao.
+- `local_markers`: emuladores e enderecos locais (ja preenchido com valores universais).
+
+Listas vazias sao **seguras, nao permissivas**: sem marcadores nada resolve para `dev`, todo alvo fica
+`unknown`, mutacao e negada e leitura exige aprovacao. Preencher `dev_markers` e o que libera o fluxo
+de desenvolvimento sem aprovacao manual.
+
+## Matriz de decisao
+
+A classificacao e por **alvo** (conta, profile, contexto, endpoint), nunca por verbo isolado: um
+comando de leitura apontado para producao vaza tanto quanto uma escrita.
+
+| Acao | `dev` / `local` | `prod` | `unknown` |
+|---|---|---|---|
+| Mutacao `aws` | `ask` | `deny` | `deny` |
+| Leitura de segredo `aws` | `allow` | `ask` | `ask` |
+| Leitura comum `aws` | `allow` | `ask` | `ask` |
+| `aws sts get-caller-identity` | `allow` | `allow` | `allow` |
+| Mutacao `kubectl` | `ask` | `deny` | `deny` |
+| `kubectl get secret` | `allow` | `ask` | `ask` |
+| Leitura `kubectl` | `allow` | `ask` | `ask` |
+| `kubectl` sem `--context` | `deny` | `deny` | `deny` |
+| Leitura de `.env` | `ask` | `ask` | `ask` |
+
+`kubectl` sem `--context` e negado independente do alvo porque o `current-context` pode apontar para
+producao sem nenhum sinal no comando. A mensagem de bloqueio inclui a auto-correcao.
+
+## Auditoria
+
+Cada decisao diferente de `allow` gera uma linha em `.cursor/hooks/.agent-cloud-access-audit.log` com
+data, decisao, ferramenta, verbo e alvo. O comando bruto **nao** e registrado, porque pode conter
+credencial embutida. O arquivo e truncado ao passar de 512 KB e nao deve ser versionado.
+
+## Limites declarados
+
+Estes controles reduzem acidente, nao detem um ator malicioso:
+
+- Sao contornaveis por `eval`, `bash -c`, wrapper de PATH ou subprocesso que o hook nao observa.
+- Nao cobrem chamadas feitas por bibliotecas dentro de processos de teste ou de aplicacao.
+- Nao substituem IAM/RBAC. Se a credencial disponivel permite destruir producao, a fronteira real
+  esta errada, e o hook e apenas um lembrete.
+
+## Verificacao
+
+```bash
+make check-agent-hooks                              # wiring, failClosed e permissao dos scripts
+./.cursor/hooks/agent-cloud-access-guard-selftest.sh # matriz de decisao contra config de fixture
+./.cursor/hooks/env-read-guard-selftest.sh           # protecao de .env e fail-closed
+make env-keys                                        # chaves de .env sem expor valores
+```
+</file>
+
 <file path="examples/.gitkeep">
 
 </file>
@@ -4233,6 +6548,97 @@ go 1.26.4
 
 <file path="pkg/.gitkeep">
 
+</file>
+
+<file path="scripts/check-agent-hooks.sh">
+#!/usr/bin/env bash
+# Agent hooks wiring gate.
+#
+# A security control that can be silently disabled is not a control: this gate
+# fails when .cursor/hooks.json loses an expected guard, drops failClosed, or
+# points at a script that is missing or not executable.
+#
+# Uses python3 rather than jq because python3 is already required by the guards
+# themselves, so this gate adds no new dependency.
+set -euo pipefail
+
+HOOKS_FILE="${1:-.cursor/hooks.json}"
+
+command -v python3 >/dev/null 2>&1 || {
+  echo "check-agent-hooks: FAIL: python3 is required" >&2
+  exit 1
+}
+[ -f "$HOOKS_FILE" ] || {
+  echo "check-agent-hooks: FAIL: $HOOKS_FILE not found" >&2
+  exit 1
+}
+
+python3 - "$HOOKS_FILE" <<'PY'
+import json
+import os
+import sys
+
+hooks_file = sys.argv[1]
+# Hook commands are declared relative to the project root, which is the parent
+# of the .cursor directory holding hooks.json.
+root = os.path.dirname(os.path.dirname(os.path.abspath(hooks_file)))
+
+# (event, script fragment, must declare failClosed)
+REQUIRED = (
+    ("beforeShellExecution", "agent-cloud-access-guard.sh", True),
+    ("preToolUse", "env-read-guard.sh", True),
+    # The guard itself is fail-open by design (its definitive gate is CI), but the
+    # hook entry must still declare failClosed so a crash or timeout does not pass
+    # unnoticed.
+    ("beforeShellExecution", "governed-change-guard.sh", True),
+    ("beforeShellExecution", "parallel-collision-guard.sh", True),
+)
+
+try:
+    with open(hooks_file, encoding="utf-8") as handle:
+        config = json.load(handle)
+except json.JSONDecodeError as exc:
+    print(f"check-agent-hooks: FAIL: {hooks_file} is not valid JSON ({exc})", file=sys.stderr)
+    raise SystemExit(1)
+
+hooks = config.get("hooks") or {}
+failures = []
+
+for event, script, want_fail_closed in REQUIRED:
+    entries = [item for item in (hooks.get(event) or []) if script in str(item.get("command", ""))]
+    if not entries:
+        failures.append(f"{event} is missing hook {script}")
+        continue
+
+    entry = entries[0]
+    if want_fail_closed and entry.get("failClosed") is not True:
+        failures.append(f"{script} must declare failClosed: true")
+
+    resolved = os.path.join(root, entry.get("command", ""))
+    if not os.path.isfile(resolved):
+        failures.append(f"hook script not found: {entry.get('command')}")
+    elif not os.access(resolved, os.X_OK):
+        failures.append(f"hook script not executable: {entry.get('command')}")
+
+if failures:
+    for failure in failures:
+        print(f"check-agent-hooks: FAIL: {failure}", file=sys.stderr)
+    print(f"check-agent-hooks: FAIL ({len(failures)} problema(s))", file=sys.stderr)
+    raise SystemExit(1)
+
+print("check-agent-hooks: ok")
+PY
+</file>
+
+<file path="scripts/check-architecture-boundaries.sh">
+#!/usr/bin/env bash
+# Hexagonal boundary gate. Production-only, and every root is optional:
+# domain imports stdlib only; application forbids adapters/frameworks/SDKs and
+# concrete telemetry; external SDKs only in adapters or the composition root;
+# pkg/ must not depend on internal/ except through the declared public bridge.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+exec go run ./tools/guardrails architecture
 </file>
 
 <file path="scripts/check-compliance.sh">
@@ -4290,6 +6696,46 @@ required_files=(
 	"docs/ai/briefs/ai-implementation-brief.md"
 	"docs/ai/briefs/ai-diagnosis-brief.md"
 	"docs/ai/briefs/ai-remediation-bugfix-brief.md"
+	".cursor/hooks.json"
+	".cursor/hooks/agent-cloud-access-guard.sh"
+	".cursor/hooks/agent-cloud-access-guard.py"
+	".cursor/hooks/cloud-access-config.json"
+	".cursor/hooks/env-read-guard.sh"
+	".cursor/hooks/env-read-guard.py"
+	".cursor/hooks/governed-change-guard.sh"
+	".cursor/hooks/parallel-collision-guard.sh"
+	".cursor/rules/agent-cloud-access.mdc"
+	".cursor/rules/governed-change-enforcement.mdc"
+	".cursor/rules/dual-model-plan-review.mdc"
+	".cursor/rules/parallel-session-safety.mdc"
+	".cursor/rules/pre-pr-before-push.mdc"
+	"scripts/check-agent-hooks.sh"
+	"scripts/check-governed-change.sh"
+	"scripts/check-sdd-compliance.sh"
+	"scripts/check-parallel-collision.sh"
+	"scripts/check-parallel-collision-selftest.sh"
+	"scripts/check-architecture-boundaries.sh"
+	"scripts/check-test-isolation.sh"
+	"scripts/verify-plan-review.sh"
+	"scripts/review-plan.py"
+	"scripts/lib/plan_risk.py"
+	"scripts/resolve-open-pr-body.sh"
+	"scripts/resolve-pr-body-by-number.sh"
+	"automation/PLAN_REVIEWS/README.md"
+	".guardrails/README.md"
+	".guardrails/function-size-exceptions.yaml"
+	".guardrails/port-size-exceptions.yaml"
+	".guardrails/ignored-error-exceptions.yaml"
+	".guardrails/public-route-exceptions.yaml"
+	".guardrails/package-exceptions.yaml"
+	".guardrails/governed-change-exceptions.yaml"
+	"tools/guardrails/main.go"
+	"docs/runbooks/agent-cloud-access.md"
+	"skills/27-dual-model-plan-review/SKILL.md"
+	"skills/28-plan-review-autopilot/SKILL.md"
+	"skills/29-governed-change-workflow/SKILL.md"
+	"skills/30-third-party-service-integrations/SKILL.md"
+	"skills/31-parallel-session-coordination/SKILL.md"
 )
 
 for file in "${required_files[@]}"; do
@@ -4301,6 +6747,34 @@ done
 [[ -x "scripts/check-pr-body.sh" ]] || fail "scripts/check-pr-body.sh must be executable"
 [[ -x "scripts/create-pr-from-template.sh" ]] || fail "scripts/create-pr-from-template.sh must be executable"
 assert_dir "test/security"
+
+# Governance and security gates are only controls if they can actually run.
+for script in \
+	scripts/check-agent-hooks.sh \
+	scripts/check-governed-change.sh \
+	scripts/check-sdd-compliance.sh \
+	scripts/check-parallel-collision.sh \
+	scripts/check-parallel-collision-selftest.sh \
+	scripts/check-architecture-boundaries.sh \
+	scripts/check-function-size.sh \
+	scripts/check-port-size.sh \
+	scripts/check-ignored-errors.sh \
+	scripts/check-observability.sh \
+	scripts/check-package-clean.sh \
+	scripts/check-public-route-security.sh \
+	scripts/check-test-isolation.sh \
+	scripts/verify-plan-review.sh \
+	scripts/resolve-open-pr-body.sh \
+	scripts/resolve-pr-body-by-number.sh \
+	scripts/env-keys.sh \
+	.cursor/hooks/agent-cloud-access-guard.sh \
+	.cursor/hooks/agent-cloud-access-guard-selftest.sh \
+	.cursor/hooks/env-read-guard.sh \
+	.cursor/hooks/env-read-guard-selftest.sh \
+	.cursor/hooks/governed-change-guard.sh \
+	.cursor/hooks/parallel-collision-guard.sh; do
+	[[ -x "$script" ]] || fail "$script must be executable"
+done
 
 shopt -s nullglob
 
@@ -4321,6 +6795,19 @@ done
 for target in lint vet check-compliance check-pr-body test-security; do
 	assert_grep "^${target}:" "Makefile"
 	assert_grep "run: make ${target}" ".github/workflows/ci.yml"
+done
+
+# Governance gates must exist as targets AND run in CI: a target nobody invokes
+# is documentation, not a gate.
+for target in check-agent-hooks hook-selftests guardrails verify-plan-reviews check-governed-change; do
+	assert_grep "^${target}:" "Makefile"
+	assert_grep "run: make ${target}" ".github/workflows/ci.yml"
+done
+
+for target in pre-pr check-sdd-compliance check-parallel-collision check-architecture-boundaries \
+	check-function-size check-port-size check-ignored-errors check-observability \
+	check-package-clean check-public-route-security check-test-isolation review-plan env-keys; do
+	assert_grep "^${target}:" "Makefile"
 done
 
 assert_grep "^secrets-check:" "Makefile"
@@ -4357,7 +6844,10 @@ for file in "${operational_files[@]}"; do
 done
 
 assert_grep "^## Objetivo$" ".github/PULL_REQUEST_TEMPLATE.md"
+assert_grep "^## Backlog$" ".github/PULL_REQUEST_TEMPLATE.md"
 assert_grep "^## Specs lidas$" ".github/PULL_REQUEST_TEMPLATE.md"
+assert_grep "^## Autopilot$" ".github/PULL_REQUEST_TEMPLATE.md"
+assert_grep "^## Regressao$" ".github/PULL_REQUEST_TEMPLATE.md"
 assert_grep "^## Arquivos alterados$" ".github/PULL_REQUEST_TEMPLATE.md"
 assert_grep "^## Impacto em docs e superficie publica$" ".github/PULL_REQUEST_TEMPLATE.md"
 assert_grep "^## Comandos executados$" ".github/PULL_REQUEST_TEMPLATE.md"
@@ -4388,6 +6878,21 @@ assert_grep "^# AI Compliance Exceptions$" "docs/ai/compliance-exceptions.md"
 assert_grep "^## Estado atual$" "docs/ai/compliance-exceptions.md"
 assert_grep "^## Formato de registro$" "docs/ai/compliance-exceptions.md"
 assert_grep "^## Excecoes ativas$" "docs/ai/compliance-exceptions.md"
+
+# Every guardrail allowlist must carry the exceptions section: an allowlist that
+# is absent or malformed is a hard error in the gate, never "no exceptions".
+for allowlist in .guardrails/*.yaml; do
+	assert_grep "^exceptions:" "$allowlist"
+done
+
+# Security hooks must stay wired and fail-closed.
+assert_grep "agent-cloud-access-guard.sh" ".cursor/hooks.json"
+assert_grep "env-read-guard.sh" ".cursor/hooks.json"
+assert_grep "governed-change-guard.sh" ".cursor/hooks.json"
+assert_grep "parallel-collision-guard.sh" ".cursor/hooks.json"
+assert_grep "failClosed" ".cursor/hooks.json"
+assert_grep "skills/29-governed-change-workflow" "AGENTS.md"
+assert_grep "skills/31-parallel-session-coordination" "AGENTS.md"
 
 log "ok"
 </file>
@@ -4449,6 +6954,953 @@ if (( warnings > 0 )); then
 fi
 
 exit 0
+</file>
+
+<file path="scripts/check-function-size.sh">
+#!/usr/bin/env bash
+# Function size gate: warn >40, error >80 lines.
+# Allowlist: .guardrails/function-size-exceptions.yaml (path + symbol).
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+exec go run ./tools/guardrails funcsize
+</file>
+
+<file path="scripts/check-governed-change.sh">
+#!/usr/bin/env bash
+# Governed change enforcement gate.
+#
+# When the diff touches governed scope (pkg/**, internal/**, api/**,
+# migrations/**), the PR body must declare the quartet: a backlog item
+# (BLG-NNNN with an implementable status), a dual-spec pair (construction NNN +
+# diagnosis NNN+1), a plan with an approved review, and the regression coverage
+# obligation. Cross-checked against docs/backlog/Backlog.md, specs/ and
+# scripts/verify-plan-review.sh.
+#
+# Security: the PR body is resolved by precedence
+#   $PR_BODY (file) > .pull_request.body from $GITHUB_EVENT_PATH (JSON)
+#   > gh pr view of the branch's open PR (local only, fail-closed) > empty
+# and is NEVER interpolated into a shell command. PR-scoped (BASE_REF). On push
+# in CI (no PR context): explicit skip. Locally without a body: only skips with
+# PROOF (via gh) that no PR is open; gh missing/erroring with governed scope
+# touched = FAIL. On pull_request with no extractable body: FAIL.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+
+base="${BASE_REF:-}"
+if [ -z "$base" ]; then
+  for cand in origin/main origin/master main master; do
+    if git rev-parse --verify --quiet "$cand" >/dev/null 2>&1; then base="$cand"; break; fi
+  done
+fi
+if [ -z "$base" ]; then
+  if [ -n "${CI:-}" ] && [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ]; then
+    echo "check-governed-change: FAIL: no base ref resolvable in CI; set BASE_REF (e.g. origin/main)" >&2
+    exit 1
+  fi
+  echo "check-governed-change: skipped (no base ref; set BASE_REF to enable locally)"
+  exit 0
+fi
+
+changed="$(git diff --name-only "$base...HEAD" 2>/dev/null || true)"
+explicit_body="${1:-${PR_BODY:-}}"
+pr_body_file="$explicit_body"
+
+gh_status=""
+gh_tmp=""
+cleanup_gh_tmp() { if [ -n "$gh_tmp" ]; then rm -f "$gh_tmp"; fi; }
+trap cleanup_gh_tmp EXIT
+
+# In pull_request CI, prefer the live body by PR number: it works with a detached
+# HEAD and avoids a stale payload when the body is edited mid-run. Never
+# overrides an explicit PR_BODY/$1.
+if [ -z "$explicit_body" ] || [ ! -s "${explicit_body}" ]; then
+  if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ]; then
+    live_tmp="$(mktemp)"
+    if ./scripts/resolve-pr-body-by-number.sh "$live_tmp"; then
+      pr_body_file="$live_tmp"
+      gh_tmp="$live_tmp"
+      gh_status="resolved-by-number"
+    else
+      rm -f "$live_tmp"
+    fi
+  fi
+fi
+
+if { [ -z "$pr_body_file" ] || [ ! -s "$pr_body_file" ]; } \
+  && { [ -z "${GITHUB_EVENT_PATH:-}" ] || [ ! -f "${GITHUB_EVENT_PATH:-}" ]; } \
+  && [ -z "${GITHUB_EVENT_NAME:-}${CI:-}" ]; then
+  gh_tmp="$(mktemp)"
+  rc=0
+  ./scripts/resolve-open-pr-body.sh "$gh_tmp" || rc=$?
+  case "$rc" in
+    0) pr_body_file="$gh_tmp"; gh_status="resolved" ;;
+    2) gh_status="no-pr" ;;
+    3) gh_status="gh-missing" ;;
+    *) gh_status="gh-error" ;;
+  esac
+fi
+
+CGC_CHANGED="$changed" CGC_PR_BODY_FILE="$pr_body_file" CGC_GH_STATUS="$gh_status" python3 - <<'PY'
+from __future__ import annotations
+
+import datetime
+import fnmatch
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+GOVERNED = re.compile(r"^(pkg/|internal/|api/|migrations/)")
+ALLOWLIST = Path(".guardrails/governed-change-exceptions.yaml")
+BACKLOG = Path("docs/backlog/Backlog.md")
+# Statuses under which implementation may legitimately be in flight.
+VALID_STATUS = {"ready_for_implementation", "in_progress", "done"}
+# Regression evidence must point at the project's versioned test tree.
+TEST_ROOT = os.environ.get("GOVERNED_TEST_ROOT", "test/")
+
+
+def out(msg: str) -> None:
+    print(f"check-governed-change: {msg}")
+
+
+def fail(msg: str) -> int:
+    print(f"check-governed-change: FAIL: {msg}", file=sys.stderr)
+    return 1
+
+
+REQUIRED_ALLOWLIST_FIELDS = ("path", "rule", "justification", "owner", "expires_at", "ref")
+
+
+def load_allowlist_globs() -> tuple[list[str], list[str], list[str]]:
+    """Return (active_globs, expired_globs, schema_errors) from the YAML allowlist.
+
+    Enforces the same field contract as .guardrails/README.md and the Go
+    guardrails tool. An entry missing owner, justification or ref is rejected
+    rather than silently honoured: an exception nobody owns is not an exception,
+    it is a permanent hole.
+    """
+    if not ALLOWLIST.exists():
+        return [], [], []
+
+    active: list[str] = []
+    expired: list[str] = []
+    errors: list[str] = []
+    today = datetime.date.today()
+    entries: list[dict[str, str]] = []
+    current: dict[str, str] | None = None
+
+    for lineno, raw in enumerate(ALLOWLIST.read_text(encoding="utf-8").splitlines(), start=1):
+        line = raw.strip()
+        if not line or line.startswith("#") or line.startswith("exceptions:") or line.startswith("version:"):
+            continue
+        if line.startswith("- "):
+            current = {"_line": str(lineno)}
+            entries.append(current)
+            line = line[2:].strip()
+            if not line:
+                continue
+        if current is None:
+            errors.append(f"{ALLOWLIST}:{lineno}: field outside of a list item")
+            continue
+        key, _, value = line.partition(":")
+        if not _:
+            errors.append(f"{ALLOWLIST}:{lineno}: malformed line")
+            continue
+        current[key.strip()] = value.strip().strip('"').strip("'")
+
+    for entry in entries:
+        lineno = entry.get("_line", "?")
+        missing = [f for f in REQUIRED_ALLOWLIST_FIELDS if not entry.get(f)]
+        if missing:
+            errors.append(f"{ALLOWLIST}:{lineno}: entry missing required field(s): {', '.join(missing)}")
+            continue
+        path_val = entry["path"]
+        try:
+            exp_date = datetime.date.fromisoformat(entry["expires_at"])
+        except ValueError:
+            errors.append(f"{ALLOWLIST}:{lineno}: invalid expires_at {entry['expires_at']!r} (want YYYY-MM-DD)")
+            expired.append(path_val)
+            continue
+        (active if exp_date >= today else expired).append(path_val)
+
+    return active, expired, errors
+
+
+def matches(path: str, pattern: str) -> bool:
+    if not pattern:
+        return False
+    if path == pattern or path.startswith(pattern.rstrip("/") + "/"):
+        return True
+    return fnmatch.fnmatch(path, pattern) or fnmatch.fnmatch(path, pattern.rstrip("/") + "/**")
+
+
+def resolve_body() -> tuple[str | None, str]:
+    pr_body_file = os.environ.get("CGC_PR_BODY_FILE", "").strip()
+    if pr_body_file and Path(pr_body_file).is_file():
+        return Path(pr_body_file).read_text(encoding="utf-8"), "PR_BODY"
+    event_path = os.environ.get("GITHUB_EVENT_PATH", "")
+    if event_path and Path(event_path).is_file():
+        try:
+            data = json.loads(Path(event_path).read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            return None, "event-unreadable"
+        pr = data.get("pull_request") or {}
+        body = pr.get("body")
+        if isinstance(body, str):
+            return body, "GITHUB_EVENT_PATH"
+    return None, "none"
+
+
+def section(body: str, header: str) -> str:
+    # Capture text from a `## header` line until the next `## ` heading.
+    pattern = re.compile(rf"^##\s+{re.escape(header)}.*$", re.MULTILINE)
+    m = pattern.search(body)
+    if not m:
+        return ""
+    start = m.end()
+    nxt = re.search(r"^##\s+", body[start:], re.MULTILINE)
+    return body[start: start + nxt.start()] if nxt else body[start:]
+
+
+def backlog_block(item: str) -> str | None:
+    """Return the item block from the single-file backlog.
+
+    The kit keeps one backlog file, so the item is delimited by its own `###`
+    heading and the next `###`/`##` heading.
+    """
+    if not BACKLOG.is_file():
+        return None
+    text = BACKLOG.read_text(encoding="utf-8")
+    m = re.search(rf"^###\s+{re.escape(item)}\b.*$", text, re.MULTILINE)
+    if not m:
+        return None
+    start = m.end()
+    nxt = re.search(r"^#{2,3}\s+", text[start:], re.MULTILINE)
+    return text[start: start + nxt.start()] if nxt else text[start:]
+
+
+def item_status(block: str) -> str | None:
+    m = re.search(r"^-\s*\*\*Status\*\*:\s*(.+)$", block, re.MULTILINE)
+    if not m:
+        return None
+    return m.group(1).strip().strip("`").strip()
+
+
+def main() -> int:
+    changed = [c for c in os.environ.get("CGC_CHANGED", "").splitlines() if c.strip()]
+    active_globs, expired_globs, allowlist_errors = load_allowlist_globs()
+    if allowlist_errors:
+        for e in allowlist_errors:
+            print(f"check-governed-change: - {e}", file=sys.stderr)
+        return fail("governed-change allowlist does not satisfy the required schema")
+
+    governed = [f for f in changed if GOVERNED.match(f)]
+    # Expired exception used by a changed file is a hard failure.
+    for f in governed:
+        for g in expired_globs:
+            if matches(f, g):
+                return fail(f"allowlist entry for '{g}' is expired but matches changed file '{f}'")
+    governed = [f for f in governed if not any(matches(f, g) for g in active_globs)]
+
+    if not governed:
+        out("ok (no governed-scope change)")
+        return 0
+
+    body, source = resolve_body()
+    event_name = os.environ.get("GITHUB_EVENT_NAME", "")
+    gh_status = os.environ.get("CGC_GH_STATUS", "")
+    if body is None or not body.strip():
+        if event_name == "pull_request":
+            return fail("pull_request touched governed scope but PR body is empty/unreadable")
+        if gh_status == "no-pr":
+            out("skipped (governed scope changed but no open PR for this branch; proven via gh)")
+            return 0
+        if gh_status == "gh-missing":
+            return fail(
+                "governed scope changed and gh is not installed; "
+                "run 'make pre-pr PR_BODY=<body.md>' or install gh"
+            )
+        if gh_status in ("gh-error", "resolved"):
+            return fail(
+                "governed scope changed but the branch's open PR body could not be resolved via gh; "
+                "run 'make pre-pr PR_BODY=<body.md>'"
+            )
+        out("skipped (governed scope changed but no PR body; provide PR_BODY locally or open a PR)")
+        return 0
+
+    errors: list[str] = []
+
+    # 1) Backlog: ## Backlog -> BLG-NNNN with an implementable status.
+    # Scoped strictly to the section. The sections are mandatory in the PR
+    # template, so falling back to the whole body would let an id cited under
+    # '## Regressao' satisfy '## Backlog' and defeat the structure.
+    backlog_sec = section(body, "Backlog")
+    item_m = re.search(r"BLG-\d{4}", backlog_sec)
+    item = item_m.group(0) if item_m else None
+    block = backlog_block(item) if item else None
+    if not item:
+        errors.append("missing BLG-NNNN in '## Backlog' section of the PR body")
+    elif block is None:
+        errors.append(f"{item} not found as a '### {item}' entry in {BACKLOG}")
+    else:
+        status = item_status(block)
+        if status not in VALID_STATUS:
+            errors.append(f"{item} status must be in {sorted(VALID_STATUS)}, got '{status or 'none'}'")
+
+    # 2) Specs: ## Specs lidas -> construction NNN + diagnosis NNN+1, both existing.
+    specs_sec = section(body, "Specs lidas")
+    spec_paths = re.findall(r"specs/\d{3}-[\w./-]*?\.md", specs_sec)
+    diagnosis = [p for p in spec_paths if p.endswith("-diagnosis.md")]
+    construction = [p for p in spec_paths if not p.endswith("-diagnosis.md")]
+    pair_c = pair_d = ""
+    if not construction or not diagnosis:
+        errors.append(
+            "'## Specs lidas' must cite a construction spec (specs/NNN-...md) and its diagnosis "
+            "spec (specs/(NNN+1)-...-diagnosis.md)"
+        )
+    else:
+        ok_pair = False
+        for c in construction:
+            cn = int(re.search(r"specs/(\d{3})", c).group(1))
+            for d in diagnosis:
+                dn = int(re.search(r"specs/(\d{3})", d).group(1))
+                if dn == cn + 1 and Path(c).exists() and Path(d).exists():
+                    ok_pair = True
+                    pair_c, pair_d = c, d
+                    break
+            if ok_pair:
+                break
+        if not ok_pair:
+            errors.append(
+                "no valid dual-spec pair found (need specs/NNN + specs/(NNN+1)-...-diagnosis.md, "
+                "both existing on disk)"
+            )
+        elif block is not None:
+            # Cross-link: the backlog item should reference the same pair.
+            c_num = pair_c.rsplit("/", 1)[-1].split("-")[0]
+            d_num = pair_d.rsplit("/", 1)[-1].split("-")[0]
+            if c_num not in block or d_num not in block:
+                errors.append(
+                    f"{item} should reference the dual-spec pair {pair_c} / {pair_d} "
+                    "(Spec governante / Spec de diagnostico)"
+                )
+
+    # 3) Autopilot: ## Autopilot -> plan with an approved review.
+    autopilot_sec = section(body, "Autopilot")
+    plan_m = re.search(r"\.cursor/plans/[\w./-]+\.plan\.md", autopilot_sec)
+    if not plan_m:
+        errors.append("'## Autopilot' must cite the plan path (.cursor/plans/<id>.plan.md)")
+    else:
+        plan_path = plan_m.group(0)
+        if not Path(plan_path).exists():
+            errors.append(f"plan not found on disk: {plan_path}")
+        else:
+            res = subprocess.run(
+                ["scripts/verify-plan-review.sh", "--plan", plan_path],
+                capture_output=True, text=True,
+            )
+            if res.returncode != 0:
+                detail = (res.stderr or res.stdout).strip().splitlines()
+                tail = detail[-1] if detail else "review verification failed"
+                errors.append(f"plan {plan_path} has no valid approved review: {tail}")
+
+    # 4) Regressao: ## Regressao -> backlog item + target scenario in the test tree.
+    regression_sec = section(body, "Regressao") or section(body, "Regressão")
+    if not regression_sec.strip():
+        errors.append(
+            f"'## Regressao' must declare BLG-NNNN and the target scenario under {TEST_ROOT}"
+        )
+    else:
+        reg_item_m = re.search(r"BLG-\d{4}", regression_sec)
+        if not reg_item_m:
+            errors.append("'## Regressao' must cite BLG-NNNN for regression coverage")
+        elif item and reg_item_m.group(0) != item:
+            errors.append("'## Regressao' BLG must match '## Backlog' BLG")
+        # Require a concrete package::scenario reference, not just the substring
+        # "test/": a bare mention proves nothing about what will be covered.
+        scenario = re.compile(rf"{re.escape(TEST_ROOT)}[\w./-]+::[\w./-]+")
+        if not scenario.search(regression_sec):
+            errors.append(f"'## Regressao' must reference {TEST_ROOT}<package>::<scenario>")
+
+    if errors:
+        for e in errors:
+            print(f"check-governed-change: - {e}", file=sys.stderr)
+        return fail(
+            "governed-scope change is missing the required quartet "
+            "(backlog + dual-spec + reviewed plan + regressao)"
+        )
+
+    out(f"ok (governed change linked to {item} + dual-spec + reviewed plan + regressao; body via {source})")
+    return 0
+
+
+sys.exit(main())
+PY
+</file>
+
+<file path="scripts/check-ignored-errors.sh">
+#!/usr/bin/env bash
+# Ignored error gate: `_ = call(...)` is rejected when the callee name suggests
+# audit, persistence, queue or IO work, where discarding the error hides failure.
+# Allowlist: .guardrails/ignored-error-exceptions.yaml (path + symbol).
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+exec go run ./tools/guardrails ignored-errors
+</file>
+
+<file path="scripts/check-observability.sh">
+#!/usr/bin/env bash
+# Observability gate.
+#
+# Progressive by design: the stack is not imposed on an empty project. What the
+# gate enforces is coherence - if a telemetry dependency is declared in go.mod,
+# it must actually be used in production code, and stdlib printing is never an
+# acceptable substitute for the structured logger.
+#
+# Target state is described in skills/12-observability-zap-otel-prom/SKILL.md.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+
+fail() { printf 'check-observability: FAIL: %s\n' "$*" >&2; exit 1; }
+note() { printf 'check-observability: %s\n' "$*"; }
+
+# Production Go files under internal/: excludes tests and vendored trees.
+production_files() {
+	find internal -type f -name '*.go' \
+		! -name '*_test.go' \
+		! -path '*/vendor/*' \
+		! -path '*/testdata/*' 2>/dev/null || true
+}
+
+if [ ! -d internal ]; then
+	note "ok (no internal/ tree yet; nothing to instrument)"
+	exit 0
+fi
+
+files="$(production_files)"
+if [ -z "$files" ]; then
+	note "ok (no production Go files under internal/ yet)"
+	exit 0
+fi
+
+# Only DIRECT dependencies count as adoption. A transitive `// indirect` entry is
+# something another library pulled in, not a decision to instrument with it, and
+# demanding wiring for it would be a false positive.
+declared() { grep -- "$1" go.mod 2>/dev/null | grep -qv '// indirect'; }
+used() { printf '%s\n' "$files" | xargs grep -l -- "$1" >/dev/null 2>&1; }
+
+adopted=0
+
+# 1. Structured logger: declared means wired.
+if declared 'go.uber.org/zap'; then
+	used 'go.uber.org/zap' || fail "go.uber.org/zap is in go.mod but never imported in internal/** production code"
+	adopted=$((adopted + 1))
+fi
+
+# 2. Tracing: declared means instrumented, and the HTTP edge must be wrapped
+#    exactly once rather than per handler.
+if declared 'go.opentelemetry.io'; then
+	used 'go.opentelemetry.io' || fail "OpenTelemetry is in go.mod but not used in internal/** (tracing instrumentation required)"
+	adopted=$((adopted + 1))
+	if declared 'otelhttp' || used 'otelhttp'; then
+		used 'otelhttp' || fail "otelhttp declared but not used; wrap the HTTP handler at the edge, not per route"
+	fi
+fi
+
+# 3. Metrics: declared means a metrics surface exists.
+if declared 'github.com/prometheus/client_golang'; then
+	used 'prometheus' || fail "Prometheus client is in go.mod but no metrics are registered in internal/**"
+	adopted=$((adopted + 1))
+fi
+
+# 4. No stdlib log / fmt printing in internal/** production code. This applies
+#    regardless of which telemetry stack the project adopted: unstructured output
+#    is invisible to any of them.
+pattern='(log\.(Printf|Println|Print|Fatal|Fatalf|Fatalln|Panic)|fmt\.(Print|Println|Printf))\('
+offenders="$(printf '%s\n' "$files" | xargs grep -En -- "$pattern" 2>/dev/null || true)"
+if [ -n "$offenders" ]; then
+	printf '%s\n' "$offenders" >&2
+	fail "stdlib log/fmt printing found in internal/** production code; use the structured logger"
+fi
+
+if [ "$adopted" -eq 0 ]; then
+	note "ok (no telemetry dependency declared yet; stdlib printing check passed)"
+else
+	note "ok ($adopted telemetry layer(s) declared and wired; no stdlib printing)"
+fi
+</file>
+
+<file path="scripts/check-package-clean.sh">
+#!/usr/bin/env bash
+# Packaging cleanliness gate. Forbidden artifacts must not be git-tracked nor
+# present in a delivery package dir ($PACKAGE_DIR / dist / release). Gitignored
+# workspace build outputs are NOT scanned - the target is what ships and what is
+# committed, not what a developer has locally.
+# Allowlist: .guardrails/package-exceptions.yaml (validated path prefixes).
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+
+fail() { printf 'check-package-clean: FAIL: %s\n' "$*" >&2; exit 1; }
+
+# Validated allowed path prefixes; the tool also enforces allowlist expiry.
+allowed="$(go run ./tools/guardrails allowlist-paths .guardrails/package-exceptions.yaml)"
+
+is_allowed() {
+  local f="$1" pref
+  while IFS= read -r pref; do
+    [ -n "$pref" ] || continue
+    [[ "$f" == "$pref"* ]] && return 0
+  done <<< "$allowed"
+  return 1
+}
+
+violations=()
+
+# 1. git-tracked artifacts that should never be committed.
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  is_allowed "$f" && continue
+  case "$f" in
+    */node_modules/*|node_modules/*) violations+=("tracked node_modules: $f") ;;
+    */coverage/*|coverage/*) violations+=("tracked coverage: $f") ;;
+    *.coverage.out|coverage.out) violations+=("tracked coverage profile: $f") ;;
+    *.test) violations+=("tracked compiled test binary: $f") ;;
+    bin/*|*/bin/*) violations+=("tracked build output: $f") ;;
+  esac
+done < <(git ls-files)
+
+# 2. delivery package staging dirs.
+for d in "${PACKAGE_DIR:-}" dist release; do
+  [ -n "$d" ] && [ -d "$d" ] || continue
+  while IFS= read -r entry; do
+    [ -n "$entry" ] && violations+=("package dir $d contains forbidden artifact: $entry")
+  done < <(find "$d" \( -name .git -o -name node_modules -o -name coverage -o -name '*.test' -o -name 'coverage.out' \) -print 2>/dev/null)
+done
+
+if [ ${#violations[@]} -gt 0 ]; then
+  printf '%s\n' "${violations[@]}" >&2
+  fail "${#violations[@]} forbidden packaging artifact(s) found"
+fi
+
+printf 'check-package-clean: ok\n'
+</file>
+
+<file path="scripts/check-parallel-collision-selftest.sh">
+#!/usr/bin/env bash
+# Selftest de scripts/check-parallel-collision.sh.
+#
+# Hermetico: monta repositorios temporarios e usa BASE_REF para apontar a uma
+# branch local, entao a logica central e exercitada sem rede. As fontes que
+# dependem de rede (PRs abertos, refs remotas) degradam para WARN e sao cobertas
+# pelo uso real no hook e no pre-pr.
+set -uo pipefail
+
+SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-parallel-collision.sh"
+[ -x "$SCRIPT" ] || { echo "selftest: FAIL: $SCRIPT nao executavel" >&2; exit 1; }
+
+pass=0
+fail=0
+tmproot="$(mktemp -d)"
+trap 'rm -rf "$tmproot"' EXIT
+
+# make_repo <dir>: repo com BLG-0100 no backlog e specs/100 na branch `base`.
+make_repo() {
+    local dir="$1"
+    mkdir -p "$dir/docs/backlog" "$dir/specs" "$dir/migrations"
+    git -C "$dir" init -q -b base
+    git -C "$dir" config user.email selftest@example.com
+    git -C "$dir" config user.name selftest
+    cat >"$dir/docs/backlog/Backlog.md" <<'EOF'
+# Backlog
+
+## Itens
+
+### BLG-0100 - item existente
+
+- **Status**: `done`
+
+EOF
+    : >"$dir/specs/100-fixture.md"
+    git -C "$dir" add -A
+    git -C "$dir" commit -q -m "base"
+}
+
+# run_case <nome> <exit esperado> <dir> [detached]
+# detached=1 reproduz o checkout do CI de pull_request, onde --abbrev-ref HEAD
+# devolve "HEAD": sem identidade propria o gate nao pode acusar a si mesmo.
+run_case() {
+    local name="$1" expected="$2" dir="$3" detached="${4:-0}" out status
+    if [ "$detached" -eq 1 ]; then
+        git -C "$dir" checkout -q --detach HEAD
+    fi
+    out="$(cd "$dir" && BASE_REF=base GITHUB_HEAD_REF= "$SCRIPT" 2>&1)"
+    status=$?
+    if [ "$status" -eq "$expected" ]; then
+        printf 'selftest: PASS %s (exit %d)\n' "$name" "$status"
+        pass=$((pass + 1))
+    else
+        printf 'selftest: FAIL %s: exit %d, esperado %d\n%s\n' "$name" "$status" "$expected" "$out" >&2
+        fail=$((fail + 1))
+    fi
+}
+
+# 1) branch sem ID sequencial novo -> passa
+d="$tmproot/no-new"; make_repo "$d"
+git -C "$d" checkout -q -b feat/nada
+echo "nota" >>"$d/docs/backlog/Backlog.md"
+git -C "$d" commit -qam "sem id novo"
+run_case "branch sem ID sequencial novo" 0 "$d"
+
+# 2) item novo e livre -> passa
+d="$tmproot/item-livre"; make_repo "$d"
+git -C "$d" checkout -q -b feat/blg0101
+printf '\n### BLG-0101 - novo\n\n- **Status**: `in_progress`\n' >>"$d/docs/backlog/Backlog.md"
+git -C "$d" commit -qam "item novo livre"
+run_case "item novo e livre na base" 0 "$d"
+
+# 3) item com ID ja existente na base -> colisao
+d="$tmproot/item-colide"; make_repo "$d"
+git -C "$d" checkout -q -b feat/blg0100
+printf '\n### BLG-0100 - duplicado\n\n- **Status**: `in_progress`\n' >>"$d/docs/backlog/Backlog.md"
+git -C "$d" commit -qam "item duplicado"
+run_case "item com ID ja ocupado na base" 1 "$d"
+
+# 4) reescrever o heading de um item existente nao e reserva de ID novo
+d="$tmproot/item-reescrito"; make_repo "$d"
+git -C "$d" checkout -q -b docs/retitle
+python3 - "$d/docs/backlog/Backlog.md" <<'PY'
+import sys
+from pathlib import Path
+p = Path(sys.argv[1])
+p.write_text(
+    p.read_text(encoding="utf-8").replace(
+        "### BLG-0100 - item existente", "### BLG-0100 - titulo corrigido"
+    ),
+    encoding="utf-8",
+)
+PY
+git -C "$d" commit -qam "corrige titulo do item existente"
+run_case "reescrita de heading existente nao e ID novo" 0 "$d"
+
+# 5) spec nova e livre -> passa
+d="$tmproot/spec-livre"; make_repo "$d"
+git -C "$d" checkout -q -b feat/spec110
+: >"$d/specs/110-nova.md"
+git -C "$d" add -A && git -C "$d" commit -qam "spec nova"
+run_case "spec nova e livre na base" 0 "$d"
+
+# 6) spec com numero ja usado -> colisao
+d="$tmproot/spec-colide"; make_repo "$d"
+git -C "$d" checkout -q -b feat/spec100
+: >"$d/specs/100-outra-coisa.md"
+git -C "$d" add -A && git -C "$d" commit -qam "spec duplicada"
+run_case "spec com numero ja ocupado" 1 "$d"
+
+# 7) migration com numero ja usado -> colisao
+d="$tmproot/mig-colide"; make_repo "$d"
+: >"$d/migrations/0001_base.up.sql"
+git -C "$d" add -A && git -C "$d" commit -qam "migration base"
+git -C "$d" checkout -q -b feat/mig0001
+: >"$d/migrations/0001_outra.up.sql"
+git -C "$d" add -A && git -C "$d" commit -qam "migration duplicada"
+run_case "migration com numero ja ocupado" 1 "$d"
+
+# 8) remover item do backlog nao conta como ID novo
+d="$tmproot/remocao"; make_repo "$d"
+git -C "$d" checkout -q -b docs/limpeza
+printf '# Backlog\n\n## Itens\n\n' >"$d/docs/backlog/Backlog.md"
+git -C "$d" commit -qam "remove item"
+run_case "remocao de item nao e ID novo" 0 "$d"
+
+# 9) HEAD detached (checkout do CI de pull_request): ID novo e livre segue passando
+d="$tmproot/detached-livre"; make_repo "$d"
+git -C "$d" checkout -q -b feat/blg0120
+printf '\n### BLG-0120 - novo\n\n- **Status**: `in_progress`\n' >>"$d/docs/backlog/Backlog.md"
+git -C "$d" commit -qam "item novo em detached"
+run_case "HEAD detached com ID livre" 0 "$d" 1
+
+# 10) HEAD detached ainda detecta colisao na base, que nao depende de identidade
+d="$tmproot/detached-colide"; make_repo "$d"
+git -C "$d" checkout -q -b feat/blg0100dup
+printf '\n### BLG-0100 - duplicado\n\n- **Status**: `in_progress`\n' >>"$d/docs/backlog/Backlog.md"
+git -C "$d" commit -qam "item duplicado em detached"
+run_case "HEAD detached ainda detecta colisao na base" 1 "$d" 1
+
+printf 'selftest: %d PASS, %d FAIL\n' "$pass" "$fail"
+[ "$fail" -eq 0 ] || exit 1
+</file>
+
+<file path="scripts/check-parallel-collision.sh">
+#!/usr/bin/env bash
+# Parallel session collision gate (skills/31-parallel-session-coordination, Protocolos B e C).
+#
+# Detecta os IDs sequenciais que ESTA branch introduz (BLG-NNNN no backlog,
+# specs/NNN, migrations/NNNN) e confirma que seguem livres em tres fontes, porque
+# nenhuma delas sozinha enxerga tudo:
+#
+#   1. base ref     -> ID ja mergeado por outra sessao
+#   2. PRs abertos  -> ID reservado em PR ainda nao mergeado (invisivel na base)
+#   3. refs remotas -> branch publicada cujo nome carrega o ID; o PR pode nao
+#                      existir ainda, ou nao citar o ID no texto
+#
+# Um `max()` do backlog nao resolve: o proximo numero livre na base pode ja estar
+# reservado por uma sessao que ainda nao mergeou.
+#
+# Tambem aplica o Protocolo C: branch homonima ja publicada no remoto com
+# trabalho que nao esta em HEAD.
+#
+# Limitacao declarada: a varredura de PRs e heuristica. Um PR pode reservar um ID
+# sem cita-lo em titulo, corpo, branch ou paths. A colisao residual e absorvida
+# pelo Protocolo D quando o merge acusar.
+#
+# Exit 0 = livre (ou nada novo). Exit 1 = colisao: renumere.
+set -uo pipefail
+
+BASE_REF="${BASE_REF:-origin/main}"
+fail() { printf 'check-parallel-collision: FAIL: %s\n' "$*" >&2; }
+warn() { printf 'check-parallel-collision: WARN: %s\n' "$*" >&2; }
+
+git rev-parse --git-dir >/dev/null 2>&1 || { echo "check-parallel-collision: not a git repo" >&2; exit 1; }
+
+# `timeout` e GNU coreutils e nao existe no macOS por padrao. Sem esta resolucao o
+# gate degradaria para "fonte indisponivel" em toda maquina Darwin, perdendo em
+# silencio as duas fontes que mais importam.
+if command -v timeout >/dev/null 2>&1; then
+    with_timeout() { timeout "$@"; }
+elif command -v gtimeout >/dev/null 2>&1; then
+    with_timeout() { gtimeout "$@"; }
+else
+    with_timeout() { shift; "$@"; }
+fi
+
+# Fetch curto: sem isso o veredito e stale, que e pior que nao checar. O nome do
+# branch remoto vem do proprio BASE_REF (origin/<branch>).
+base_remote="${BASE_REF#origin/}"
+if [ "$base_remote" != "$BASE_REF" ]; then
+    if ! with_timeout 20 git fetch origin "$base_remote" -q 2>/dev/null; then
+        warn "git fetch falhou; comparando com $BASE_REF possivelmente desatualizado"
+    fi
+fi
+git rev-parse --verify -q "$BASE_REF" >/dev/null || { fail "$BASE_REF nao existe localmente"; exit 1; }
+
+# Identidade da propria branch. Ela e o que permite excluir o proprio PR e a
+# propria ref da varredura; sem ela, todo ID desta branch aparece "ocupado por si
+# mesmo" e o gate reprova trabalho legitimo.
+#
+# No CI de `pull_request` o checkout fica em HEAD detached e `--abbrev-ref HEAD`
+# devolve "HEAD", entao GITHUB_HEAD_REF (nome da branch de origem do PR) tem
+# precedencia. Sem nenhuma das duas, a auto-exclusao e impossivel: nesse caso o
+# gate degrada e pula as fontes que exigem identidade, em vez de emitir falso
+# positivo. Falso positivo bloqueia entrega correta; falso negativo residual e
+# absorvido pelo Protocolo D no merge.
+branch="${GITHUB_HEAD_REF:-}"
+[ -n "$branch" ] || branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)"
+self_known=1
+if [ -z "$branch" ] || [ "$branch" = "HEAD" ]; then
+    self_known=0
+    warn "branch propria nao identificavel (HEAD detached sem GITHUB_HEAD_REF): PRs abertos e refs remotas nao verificados"
+fi
+
+# --- fonte 2: PRs abertos (texto + branch + paths) -------------------------
+pr_ids_file="$(mktemp)"; pr_paths_file="$(mktemp)"
+trap 'rm -f "$pr_ids_file" "$pr_paths_file"' EXIT
+# O PR desta propria branch e excluido: ele cita os IDs que esta branch introduz,
+# e conta-lo geraria falso positivo -- no CI de um PR aberto o gate reprovaria
+# sempre, e localmente reprovaria todo push posterior ao primeiro.
+# `gh --jq` nao aceita --arg; o filtro le a branch por env.SELF.
+pr_scan_ok=0
+if [ "$self_known" -eq 1 ] && command -v gh >/dev/null 2>&1; then
+    if SELF="$branch" gh pr list --state open --json number,title,body,headRefName \
+        --jq '.[]|select(.headRefName != env.SELF)|"\(.title) \(.headRefName) \(.body // "")"' \
+        >"$pr_ids_file" 2>/dev/null; then
+        pr_scan_ok=1
+        for n in $(SELF="$branch" gh pr list --state open --json number,headRefName \
+            --jq '.[]|select(.headRefName != env.SELF)|.number' 2>/dev/null); do
+            gh pr view "$n" --json files --jq '.files[].path' 2>/dev/null
+        done | grep -E '^(specs|migrations)/[0-9]+' >>"$pr_paths_file" 2>/dev/null || true
+    fi
+fi
+[ "$pr_scan_ok" -eq 1 ] || warn "gh indisponivel: varredura de PRs abertos pulada (cobertura reduzida)"
+
+# --- fonte 3: refs remotas -------------------------------------------------
+# Sem identidade propria a varredura de refs acusaria a propria branch publicada.
+remote_refs=""
+if [ "$self_known" -eq 1 ]; then
+    remote_refs="$(with_timeout 20 git ls-remote --heads origin 2>/dev/null | sed 's#.*refs/heads/##' || true)"
+    [ -n "$remote_refs" ] || warn "git ls-remote falhou: branches remotas nao verificadas"
+fi
+export REMOTE_REFS="$remote_refs"
+
+python3 - "$BASE_REF" "$branch" "$pr_ids_file" "$pr_paths_file" <<'PY'
+import os
+import re
+import subprocess
+import sys
+
+base, branch, pr_ids_path, pr_paths_path = sys.argv[1:5]
+
+BACKLOG = "docs/backlog/Backlog.md"
+# Item heading in the single-file backlog: `### BLG-0001 - title`.
+ITEM_HEADING = r"###\s+BLG-(\d{4})\b"
+
+
+def git(*a):
+    try:
+        return subprocess.run(["git", *a], capture_output=True, text=True).stdout
+    except Exception:
+        return ""
+
+
+def read(p):
+    try:
+        with open(p, encoding="utf-8") as fh:
+            return fh.read()
+    except Exception:
+        return ""
+
+
+pr_text = read(pr_ids_path)
+pr_paths = read(pr_paths_path)
+remote_refs = os.environ.get("REMOTE_REFS", "")
+
+# IDs introduzidos por esta branch -----------------------------------------
+introduced = {"item": set(), "spec": set(), "migration": set()}
+
+# Um heading que aparece como adicionado E removido no mesmo diff e reescrita do
+# mesmo item (reordenacao, correcao de titulo), nao reserva de ID novo. Sem essa
+# subtracao, todo ajuste de item existente viraria falso positivo -- e falso
+# positivo bloqueia entrega correta.
+added_items: set[int] = set()
+removed_items: set[int] = set()
+diff = git("diff", f"{base}...HEAD", "--", BACKLOG)
+for line in diff.splitlines():
+    m = re.match(rf"^\+{ITEM_HEADING}", line)
+    if m:
+        added_items.add(int(m.group(1)))
+        continue
+    m = re.match(rf"^-{ITEM_HEADING}", line)
+    if m:
+        removed_items.add(int(m.group(1)))
+introduced["item"] = added_items - removed_items
+
+for f in git("diff", "--name-only", "--diff-filter=A", f"{base}...HEAD").splitlines():
+    f = f.strip()
+    m = re.match(r"^specs/(\d{3})-", f)
+    if m:
+        introduced["spec"].add(int(m.group(1)))
+    m = re.match(r"^migrations/(\d{4})[_-]", f)
+    if m:
+        introduced["migration"].add(int(m.group(1)))
+
+# Fontes de ocupacao --------------------------------------------------------
+main_backlog = git("show", f"{base}:{BACKLOG}")
+main_items = {int(n) for n in re.findall(rf"^{ITEM_HEADING}", main_backlog, re.M)}
+
+main_specs = set()
+main_migs = set()
+for f in git("ls-tree", "-r", "--name-only", base).splitlines():
+    f = f.strip()
+    m = re.match(r"^specs/(\d{3})-", f)
+    if m:
+        main_specs.add(int(m.group(1)))
+    m = re.match(r"^migrations/(\d{4})[_-]", f)
+    if m:
+        main_migs.add(int(m.group(1)))
+
+if not any(introduced.values()):
+    print("check-parallel-collision: ok (nenhum ID sequencial novo nesta branch)")
+    sys.exit(0)
+
+pr_item_ids = {int(n) for n in re.findall(r"(?:BLG-|blg)(\d+)", pr_text)}
+pr_spec_ids = set()
+pr_mig_ids = set()
+for line in pr_paths.splitlines():
+    line = line.strip()
+    m = re.match(r"^specs/(\d{3})", line)
+    if m:
+        pr_spec_ids.add(int(m.group(1)))
+    m = re.match(r"^migrations/(\d{4})", line)
+    if m:
+        pr_mig_ids.add(int(m.group(1)))
+
+# Refs remotas: o ID no nome da branch e a chave de deduplicacao entre sessoes.
+# A propria branch nao conta como colisao consigo mesma. Nomes de branch tambem
+# carregam numero de spec e de migration ("feat/spec-110-foo"), entao os tres
+# tipos sao extraidos, nao so o item de backlog.
+ref_item_ids = set()
+ref_spec_ids = set()
+ref_mig_ids = set()
+for ref in remote_refs.splitlines():
+    ref = ref.strip()
+    if not ref or ref == branch:
+        continue
+    lowered = ref.lower()
+    for n in re.findall(r"blg[-_]?(\d+)", lowered):
+        ref_item_ids.add(int(n))
+    for n in re.findall(r"spec[s]?[-_/]?(\d{3})\b", lowered):
+        ref_spec_ids.add(int(n))
+    for n in re.findall(r"migration[s]?[-_/]?(\d{4})\b", lowered):
+        ref_mig_ids.add(int(n))
+
+SOURCES = {
+    "item": ((main_items, base), (pr_item_ids, "PR aberto"), (ref_item_ids, "branch remota")),
+    "spec": ((main_specs, base), (pr_spec_ids, "PR aberto"), (ref_spec_ids, "branch remota")),
+    "migration": ((main_migs, base), (pr_mig_ids, "PR aberto"), (ref_mig_ids, "branch remota")),
+}
+LABEL = {
+    "item": lambda i: f"BLG-{i:04d}",
+    "spec": lambda i: f"specs/{i:03d}",
+    "migration": lambda i: f"migrations/{i:04d}",
+}
+
+errors = []
+for kind, ids in introduced.items():
+    for i in sorted(ids):
+        where = [name for occupied, name in SOURCES[kind] if i in occupied]
+        if where:
+            errors.append(f"{LABEL[kind](i)} ja ocupado em: {', '.join(where)}")
+
+if errors:
+    for e in errors:
+        print(f"check-parallel-collision: FAIL: {e}", file=sys.stderr)
+    print(
+        "check-parallel-collision: renumere com sort numerico contra as tres fontes, "
+        "revalide as referencias cruzadas (backlog, plano, corpo do PR, specs) e renomeie a "
+        "branch se ainda nao publicada (skills/31-parallel-session-coordination, Protocolo B).",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+summary = ", ".join(f"{k}={sorted(v)}" for k, v in introduced.items() if v)
+print(f"check-parallel-collision: ok (IDs livres nas fontes disponiveis; {summary})")
+PY
+py_status=$?
+[ "$py_status" -eq 0 ] || exit "$py_status"
+
+# --- Protocolo C: branch homonima ja publicada -----------------------------
+if [ -n "$remote_refs" ] && printf '%s\n' "$remote_refs" | grep -qx -- "$branch"; then
+    remote_sha="$(git rev-parse -q --verify "refs/remotes/origin/$branch" 2>/dev/null || true)"
+    if [ -n "$remote_sha" ] && [ "$remote_sha" != "$(git rev-parse HEAD)" ]; then
+        if ! git merge-base --is-ancestor "$remote_sha" HEAD 2>/dev/null; then
+            fail "branch '$branch' ja existe no remoto com trabalho que nao esta em HEAD"
+            printf 'check-parallel-collision: integre por rebase e prove o fast-forward antes de publicar (Protocolo D). Force push e proibido.\n' >&2
+            exit 1
+        fi
+    fi
+fi
+
+exit 0
+</file>
+
+<file path="scripts/check-port-size.sh">
+#!/usr/bin/env bash
+# Port size gate: prefer 1-3 methods per interface, warn >3, error >5.
+# Allowlist: .guardrails/port-size-exceptions.yaml (path + symbol).
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+exec go run ./tools/guardrails portsize
 </file>
 
 <file path="scripts/check-pr-body.sh">
@@ -4564,7 +8016,10 @@ fi
 
 required_headings=(
 	"## Objetivo"
+	"## Backlog"
 	"## Specs lidas"
+	"## Autopilot"
+	"## Regressao"
 	"## Skills aplicadas"
 	"## Arquivos alterados"
 	"## Impacto em docs e superficie publica"
@@ -4585,6 +8040,9 @@ forbidden_literals=(
 	"- [ ] spec(s) governante(s) citadas abaixo"
 	"- \`specs/...\`"
 	"- \`skills/...\`"
+	"- \`BLG-NNNN\` (\`docs/backlog/Backlog.md\`), com \`Status\` em \`ready_for_implementation\`, \`in_progress\` ou \`done\`"
+	"- Plano: \`.cursor/plans/<id>.plan.md\`"
+	"- \`BLG-NNNN\` + cenario alvo em \`test/<pacote>::<cenario>\`"
 	"- liste os arquivos principais alterados neste PR"
 	"- \`none\`, ou descreva o impacto relevante quando existir"
 	"- liste comandos executados alem dos checks padrao, quando houver"
@@ -4598,6 +8056,94 @@ for literal in "${forbidden_literals[@]}"; do
 done
 
 printf 'check-pr-body: ok\n'
+</file>
+
+<file path="scripts/check-public-route-security.sh">
+#!/usr/bin/env bash
+# Public route security gate: public routes must sit behind auth, tenant
+# resolution and rate limiting, and the published contract must declare security
+# schemes. No-ops until the project has an HTTP adapter or a contract file.
+# Allowlist: .guardrails/public-route-exceptions.yaml.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+exec go run ./tools/guardrails public-route
+</file>
+
+<file path="scripts/check-sdd-compliance.sh">
+#!/usr/bin/env bash
+# SDD compliance gate. When a governed scope path (pkg/**, internal/**, api/**,
+# migrations/**) changes in a diff, a corresponding spec / ADR / versioned change
+# record must change too.
+#
+# Additionally, a newly ADDED construction spec (specs/NNN-*.md or
+# specs/<sub>/NNN-*.md, non-diagnosis) requires its dual-spec diagnosis pair
+# (NNN+1)-*-diagnosis.md in the SAME directory. Carve-out: specs/corrections/**
+# and the meta-specs {000,001,010,020} have no mandatory pair.
+#
+# A plan in .cursor/plans/** does NOT count as a spec. PR-scoped: needs a base
+# ref (BASE_REF, else origin/main...). In CI a missing base FAILS; locally
+# without a base it is reported as skipped (never a silent gate pass).
+#
+# Declared coarseness: this gate only proves that SOME spec or ADR accompanies the
+# diff, not that it is the RIGHT one. Correlating the change to the specific
+# governing pair is done by scripts/check-governed-change.sh, which validates the
+# dual-spec pair cited in the PR body against the backlog item. Duplicating that
+# correlation here would mean guessing intent from paths.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+
+fail() { printf 'check-sdd-compliance: FAIL: %s\n' "$*" >&2; exit 1; }
+
+base="${BASE_REF:-}"
+if [ -z "$base" ]; then
+  for cand in origin/main origin/master main master; do
+    if git rev-parse --verify --quiet "$cand" >/dev/null 2>&1; then base="$cand"; break; fi
+  done
+fi
+if [ -z "$base" ]; then
+  if [ -n "${CI:-}" ]; then fail "no base ref resolvable in CI; set BASE_REF (e.g. origin/main)"; fi
+  printf 'check-sdd-compliance: skipped (no base ref; set BASE_REF to enable locally)\n'
+  exit 0
+fi
+
+changed="$(git diff --name-only "$base...HEAD" 2>/dev/null || true)"
+if [ -z "$changed" ]; then
+  printf 'check-sdd-compliance: ok (no diff vs %s)\n' "$base"
+  exit 0
+fi
+
+# Dual-spec: a newly added construction spec (any specs/ subdir) must ship its
+# diagnosis pair in the SAME directory. Diff-scoped and namespace-aware.
+added="$(git diff --name-only --diff-filter=A "$base...HEAD" 2>/dev/null || true)"
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  case "$f" in
+    specs/corrections/*) ;;
+    specs/*-diagnosis.md | specs/*/*-diagnosis.md) ;;
+    specs/[0-9][0-9][0-9]-*.md | specs/*/[0-9][0-9][0-9]-*.md)
+      base_name="$(basename "$f")"
+      n=$((10#${base_name%%-*}))
+      case "$n" in 0|1|10|20) continue ;; esac
+      dir="$(dirname "$f")"
+      pair="$(printf '%03d' $((n + 1)))"
+      if ! ls "${dir}/${pair}-"*-diagnosis.md >/dev/null 2>&1; then
+        fail "new construction spec $f requires its dual-spec pair ${dir}/${pair}-*-diagnosis.md"
+      fi
+      ;;
+  esac
+done < <(printf '%s\n' "$added")
+
+if printf '%s\n' "$changed" | grep -Eq '^(pkg/|internal/|api/|migrations/)'; then
+  if printf '%s\n' "$changed" | grep -Eiq '^(specs/|docs/decisions/)'; then
+    printf 'check-sdd-compliance: ok (governed-scope change accompanied by spec/ADR)\n'
+    exit 0
+  fi
+  printf 'changed files (vs %s):\n%s\n' "$base" "$changed" >&2
+  fail "governed scope (pkg|internal|api|migrations) changed without a matching specs/** or docs/decisions/** change (a .cursor/plans/** file does not substitute a spec)"
+fi
+
+printf 'check-sdd-compliance: ok (no governed-scope contract change)\n'
+exit 0
 </file>
 
 <file path="scripts/check-secrets.sh">
@@ -4663,6 +8209,114 @@ if (( findings > 0 )); then
 fi
 
 printf 'check-secrets: ok\n'
+</file>
+
+<file path="scripts/check-test-isolation.sh">
+#!/usr/bin/env bash
+# Conformance suite isolation.
+#
+# The conformance suite is the executable contract. A PR that changes the
+# contract test together with the feature it validates can always be made green:
+# weaken the test, ship the feature. So the two must not travel in the same
+# commit or PR.
+#
+# This does NOT conflict with the rule that behavior changes ship with tests:
+# unit tests next to the code, fixtures and the security baseline stay free. Only
+# the conformance tree is scope-isolated.
+#
+# Configurable via TEST_ISOLATION_PROTECTED_PREFIX.
+#
+# The per-commit loop ignores merge commits: CI materializes refs/pull/N/merge,
+# and diffing against the second parent of a stale tip falsely lists feature
+# files already on the base. The range union (base...HEAD) remains the
+# authoritative mixed-scope check.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+PROTECTED_PREFIX="${TEST_ISOLATION_PROTECTED_PREFIX:-test/conformance/}"
+FEATURE_PREFIXES=("pkg/" "internal/" "api/" "migrations/" "cmd/")
+
+base="${BASE_REF:-}"
+if [ -z "$base" ]; then
+  for cand in origin/main origin/master main master; do
+    if git rev-parse --verify --quiet "$cand" >/dev/null 2>&1; then base="$cand"; break; fi
+  done
+fi
+
+if [ -z "$base" ]; then
+  if [ -n "${CI:-}" ]; then
+    echo "check-test-isolation: FAIL: no BASE_REF in CI" >&2
+    exit 1
+  fi
+  echo "check-test-isolation: skipped (no base ref; set BASE_REF)"
+  exit 0
+fi
+
+is_protected() {
+  local f="$1"
+  [[ "$f" == "$PROTECTED_PREFIX"* ]]
+}
+
+is_feature() {
+  local f="$1"
+  for p in "${FEATURE_PREFIXES[@]}"; do
+    [[ "$f" == "$p"* ]] && return 0
+  done
+  return 1
+}
+
+check_file_set() {
+  local label="$1"
+  shift
+  local files=("$@")
+  local has_prot=false has_feat=false
+  for f in "${files[@]}"; do
+    [ -z "$f" ] && continue
+    if is_protected "$f"; then has_prot=true; fi
+    if is_feature "$f"; then has_feat=true; fi
+  done
+  if $has_prot && $has_feat; then
+    echo "check-test-isolation: FAIL: $label mixes $PROTECTED_PREFIX with feature scope" >&2
+    echo "check-test-isolation: split the conformance change into its own commit/PR" >&2
+    return 1
+  fi
+  return 0
+}
+
+changed=$(git diff --name-only "$base...HEAD" 2>/dev/null || true)
+if [ -z "${CI:-}" ]; then
+  wt=$(git diff --name-only HEAD 2>/dev/null || true)
+  unstaged=$(git diff --name-only 2>/dev/null || true)
+  untracked=$(git ls-files --others --exclude-standard 2>/dev/null || true)
+  changed=$(printf '%s\n%s\n%s\n%s' "$changed" "$wt" "$unstaged" "$untracked" | sed '/^$/d' | sort -u)
+fi
+if [ -z "$changed" ]; then
+  echo "check-test-isolation: ok (no changes since $base)"
+  exit 0
+fi
+changed_arr=()
+while IFS= read -r line; do [ -n "$line" ] && changed_arr+=("$line"); done <<< "$changed"
+
+if ! check_file_set "PR range" "${changed_arr[@]}"; then
+  exit 1
+fi
+
+for c in $(git rev-list --no-merges "$base"..HEAD 2>/dev/null); do
+  files=$(git diff-tree --no-commit-id --name-only -r "$c" 2>/dev/null || true)
+  arr=()
+  while IFS= read -r line; do [ -n "$line" ] && arr+=("$line"); done <<< "$files"
+  if ! check_file_set "commit $c" "${arr[@]}"; then
+    exit 1
+  fi
+done
+all_count=$(git rev-list --count "$base"..HEAD 2>/dev/null || echo 0)
+nm_count=$(git rev-list --count --no-merges "$base"..HEAD 2>/dev/null || echo 0)
+if [ "$all_count" -gt "$nm_count" ] 2>/dev/null; then
+  echo "check-test-isolation: note: ignored $((all_count - nm_count)) merge commit(s) in per-commit loop (range union still enforced)"
+fi
+
+echo "check-test-isolation: ok (no mixed conformance + feature changes since $base)"
+exit 0
 </file>
 
 <file path="scripts/create-pr-from-template.sh">
@@ -4766,6 +8420,1015 @@ fi
 gh pr create "${gh_args[@]}"
 </file>
 
+<file path="scripts/env-keys.sh">
+#!/usr/bin/env bash
+# Lists which variables exist in local env files WITHOUT exposing their values.
+#
+# Counterpart of the env read guard (.cursor/hooks/env-read-guard.py): an agent
+# that needs to know whether a key is configured should use this instead of
+# asking for approval to read the file.
+set -uo pipefail
+
+shopt -s nullglob 2>/dev/null || true
+
+found=0
+for file in .env .env.* */.env */.env.*; do
+  case "$file" in
+    *.example|*.sample|*.template) continue ;;
+  esac
+  [ -f "$file" ] || continue
+  found=1
+  printf '%s\n' "$file"
+  # Print key names only. Values never reach stdout.
+  awk -F= '
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*$/ { next }
+    /=/ {
+      key = $1
+      sub(/^[[:space:]]*(export[[:space:]]+)?/, "", key)
+      gsub(/[[:space:]]+$/, "", key)
+      if (key != "") printf "  %s\n", key
+    }
+  ' "$file"
+done
+
+if [ "$found" -eq 0 ]; then
+  echo "env-keys: nenhum arquivo .env local encontrado"
+fi
+</file>
+
+<file path="scripts/lib/plan_risk.py">
+"""Shared high-risk classification for plan review.
+
+Both `scripts/review-plan.py` (which refuses to WRITE an OPERATOR_FALLBACK
+approval for a high-risk plan) and `scripts/verify-plan-review.sh` (which refuses
+to ACCEPT one) classify risk from this single module. Two copies of the list would
+drift, and the drift would silently reopen the fallback path the gate exists to
+close.
+
+Path markers are matched as substrings. Word markers are matched with word
+boundaries and explicit alternatives, so "author" does not count as "auth" and
+"secretary" does not count as "secret": inflated risk blocks legitimate work and
+teaches people to distrust the gate.
+"""
+
+from __future__ import annotations
+
+import re
+
+PATH_MARKERS = {
+    "pkg/": "public API surface",
+    "api/": "published contract",
+    "migrations/": "database migration",
+    "docs/decisions/": "ADR",
+}
+
+WORD_MARKERS = {
+    r"auth|authentication|authorization|autenticacao|autorizacao": "authentication or authorization",
+    r"security|seguranca": "security",
+    r"secret|secrets|credential|credentials|credencial|credenciais": "secret handling",
+    r"adr|adrs": "ADR",
+    r"breaking": "breaking change",
+    r"concurrency|concurrent|concorrencia|goroutine|goroutines": "concurrency",
+    r"queue|queues|fila|filas|dlq": "queue semantics",
+    r"replay": "replay",
+    r"idempotency|idempotencia|idempotente": "idempotency",
+    r"ordering|ordenacao": "ordering",
+}
+
+
+def detect_high_risk(raw: str) -> list[str]:
+    """Return the sorted list of high-risk reasons matched by the plan text."""
+    text = raw.lower()
+    reasons: list[str] = []
+    for marker, reason in PATH_MARKERS.items():
+        if marker in text and reason not in reasons:
+            reasons.append(reason)
+    for pattern, reason in WORD_MARKERS.items():
+        if reason in reasons:
+            continue
+        if re.search(rf"\b(?:{pattern})\b", text):
+            reasons.append(reason)
+    return sorted(reasons)
+</file>
+
+<file path="scripts/resolve-open-pr-body.sh">
+#!/usr/bin/env bash
+# Resolve, via gh, the body of the OPEN PR for the current branch (local use).
+# Usage: resolve-open-pr-body.sh <out-file>
+# Exit codes:
+#   0 = body written to <out-file> (single open PR found)
+#   2 = provably NO open PR for the branch (the only legitimate skip)
+#   3 = gh unavailable (not installed)
+#   4 = could not prove (unauthenticated/network/detached HEAD/ambiguous PR)
+set -euo pipefail
+
+out="${1:?usage: resolve-open-pr-body.sh <out-file>}"
+
+command -v gh >/dev/null 2>&1 || exit 3
+
+branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+if [ -z "$branch" ] || [ "$branch" = "HEAD" ]; then
+  exit 4
+fi
+
+if ! numbers="$(gh pr list --head "$branch" --state open --json number --jq '.[].number' 2>/dev/null)"; then
+  exit 4
+fi
+
+count="$(printf '%s\n' "$numbers" | sed '/^$/d' | wc -l | tr -d ' ')"
+if [ "$count" = "0" ]; then
+  exit 2
+fi
+if [ "$count" != "1" ]; then
+  exit 4
+fi
+
+number="$(printf '%s\n' "$numbers" | sed '/^$/d' | head -n1)"
+gh pr view "$number" --json body --jq '.body // ""' > "$out" 2>/dev/null || exit 4
+exit 0
+</file>
+
+<file path="scripts/resolve-pr-body-by-number.sh">
+#!/usr/bin/env bash
+# Resolve the live body of a PR by number from $GITHUB_EVENT_PATH (CI).
+# Usage: resolve-pr-body-by-number.sh <out-file>
+# Exit codes:
+#   0 = body written to <out-file>
+#   2 = event path missing / no pull_request.number
+#   3 = no transport available (neither token+curl nor gh)
+#   4 = failed to read the body (auth/network/PR not found)
+# Does not use the local branch, so it works with a detached HEAD on
+# refs/pull/N/merge. Preference: GitHub API via curl+token (Actions) > gh CLI.
+set -euo pipefail
+
+out="${1:?usage: resolve-pr-body-by-number.sh <out-file>}"
+
+if [ -z "${GITHUB_EVENT_PATH:-}" ] || [ ! -f "${GITHUB_EVENT_PATH}" ]; then
+  exit 2
+fi
+
+number="$(python3 -c '
+import json, os, sys
+try:
+    d = json.load(open(os.environ["GITHUB_EVENT_PATH"]))
+except (OSError, ValueError):
+    sys.exit(2)
+pr = d.get("pull_request") or {}
+n = pr.get("number")
+if not isinstance(n, int) or n <= 0:
+    sys.exit(2)
+print(n)
+' 2>/dev/null)" || exit 2
+
+[ -n "$number" ] || exit 2
+
+token="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
+api="${GITHUB_API_URL:-https://api.github.com}"
+repo="${GITHUB_REPOSITORY:-}"
+
+fetch_via_api() {
+  [ -n "$token" ] || return 1
+  [ -n "$repo" ] || return 1
+  command -v curl >/dev/null 2>&1 || return 1
+  curl -fsSL \
+    -H "Authorization: Bearer ${token}" \
+    -H "Accept: application/vnd.github+json" \
+    -H "X-GitHub-Api-Version: 2022-11-28" \
+    "${api}/repos/${repo}/pulls/${number}" \
+    | python3 -c 'import json,sys; b=json.load(sys.stdin).get("body"); sys.stdout.write(b if isinstance(b,str) else "")' \
+    > "$out"
+}
+
+fetch_via_gh() {
+  command -v gh >/dev/null 2>&1 || return 1
+  gh pr view "$number" --json body --jq '.body // ""' > "$out"
+}
+
+if fetch_via_api || fetch_via_gh; then
+  [ -s "$out" ] || exit 4
+  exit 0
+fi
+
+if [ -z "$token" ] && ! command -v gh >/dev/null 2>&1; then
+  echo "resolve-pr-body-by-number: FAIL: no GITHUB_TOKEN/GH_TOKEN and gh not installed" >&2
+  exit 3
+fi
+echo "resolve-pr-body-by-number: FAIL: could not fetch body for PR #${number}" >&2
+exit 4
+</file>
+
+<file path="scripts/review-plan.py">
+#!/usr/bin/env python3
+"""Prepare plan review artifacts without bypassing the review gate.
+
+This script never approves a plan on its own authority: it computes the plan body
+hash, writes the verdict artifact and, only when an independent reviewer is
+recorded, writes the `review:` frontmatter block that
+`scripts/verify-plan-review.sh` accepts. The plan body is never modified.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import os
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+# Risk classification is shared with scripts/verify-plan-review.sh so the writer
+# and the verifier cannot disagree about what counts as high risk.
+# Bytecode is disabled so importing a repo-local module never litters the working
+# tree with __pycache__, which the packaging gate would then flag.
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+from plan_risk import detect_high_risk  # noqa: E402
+
+VALID_MODES = {"DUAL_AUTOMATED", "DUAL_TURN_BASED", "OPERATOR_FALLBACK"}
+
+
+class PlanReviewError(Exception):
+    pass
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Prepare plan review artifacts without bypassing the dual-model review gate."
+    )
+    parser.add_argument("--plan", required=True, help="Path to .cursor/plans/*.plan.md")
+    parser.add_argument(
+        "--mode",
+        choices=sorted(VALID_MODES),
+        default=os.getenv("PLAN_REVIEW_MODE"),
+        help="Review mode. Defaults to env PLAN_REVIEW_MODE or safe auto-selection.",
+    )
+    parser.add_argument(
+        "--operator-reviewed",
+        action="store_true",
+        help=(
+            "Confirm that an independent operator/model already reviewed the "
+            "final plan body. Required before DUAL_TURN_BASED writes APPROVED."
+        ),
+    )
+    parser.add_argument(
+        "--planner-model",
+        default=os.getenv("PLAN_REVIEW_PLANNER_MODEL", ""),
+        help="Planner model identifier. Defaults to PLAN_REVIEW_PLANNER_MODEL.",
+    )
+    parser.add_argument(
+        "--reviewer-model",
+        default=os.getenv("PLAN_REVIEW_REVIEWER_MODEL", ""),
+        help="Reviewer model identifier. Defaults to PLAN_REVIEW_REVIEWER_MODEL.",
+    )
+    parser.add_argument(
+        "--provider",
+        default=os.getenv("PLAN_REVIEW_PROVIDER", ""),
+        help="Optional review provider label. Defaults to PLAN_REVIEW_PROVIDER.",
+    )
+    parser.add_argument(
+        "--ttl-days",
+        default=os.getenv("PLAN_REVIEW_TTL_DAYS", "7"),
+        help="Review TTL in days, from 1 to 30. Defaults to 7.",
+    )
+    parser.add_argument(
+        "--operator-fallback-reason",
+        default="",
+        help="Required when --mode OPERATOR_FALLBACK is used.",
+    )
+    return parser.parse_args()
+
+
+def find_repo_root(start: Path) -> Path:
+    try:
+        completed = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=start,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        root = completed.stdout.strip()
+        if root:
+            return Path(root)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+
+    current = start.resolve()
+    for candidate in [current, *current.parents]:
+        if (candidate / "AGENTS.md").exists() and (candidate / "Makefile").exists():
+            return candidate
+    raise PlanReviewError("repo root not found; run from inside the repository")
+
+
+def resolve_plan_path(repo_root: Path, value: str) -> Path:
+    path = Path(value)
+    if not path.is_absolute():
+        path = repo_root / path
+    path = path.resolve()
+    try:
+        path.relative_to(repo_root.resolve())
+    except ValueError as exc:
+        raise PlanReviewError("plan must be inside the repository") from exc
+    if not path.exists():
+        raise PlanReviewError(f"plan file not found: {path}")
+    if not path.is_file():
+        raise PlanReviewError(f"plan path is not a file: {path}")
+    return path
+
+
+def split_frontmatter(raw: str) -> tuple[list[str], str, bool]:
+    lines = raw.splitlines(keepends=True)
+    if not lines or lines[0].strip() != "---":
+        return [], raw, False
+
+    end_index = None
+    for index in range(1, len(lines)):
+        if lines[index].strip() == "---":
+            end_index = index
+            break
+
+    if end_index is None:
+        raise PlanReviewError("frontmatter starts with --- but has no closing ---")
+
+    return lines[1:end_index], "".join(lines[end_index + 1 :]), True
+
+
+def compute_body_hash(body: str) -> str:
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
+def plan_id_for(path: Path) -> str:
+    name = path.name
+    suffix = ".plan.md"
+    if name.endswith(suffix):
+        return name[: -len(suffix)]
+    return path.stem
+
+
+def parse_ttl_days(value: str) -> int:
+    try:
+        ttl_days = int(value)
+    except ValueError as exc:
+        raise PlanReviewError(f"PLAN_REVIEW_TTL_DAYS/--ttl-days must be an integer, got {value}") from exc
+    if ttl_days <= 0 or ttl_days > 30:
+        raise PlanReviewError("ttl days must be between 1 and 30")
+    return ttl_days
+
+
+def choose_mode(args: argparse.Namespace) -> str:
+    if args.mode:
+        return args.mode
+
+    api_key = os.getenv("PLAN_REVIEW_API_KEY", "")
+    planner = args.planner_model.strip()
+    reviewer = args.reviewer_model.strip()
+    if api_key and planner and reviewer and planner != reviewer:
+        return "DUAL_AUTOMATED"
+    return "DUAL_TURN_BASED"
+
+
+def quote_yaml(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def remove_existing_review(frontmatter_lines: list[str]) -> list[str]:
+    kept: list[str] = []
+    skipping_review = False
+    for line in frontmatter_lines:
+        if not skipping_review and line.strip() == "review:":
+            skipping_review = True
+            continue
+        if skipping_review:
+            if line.startswith("  ") or not line.strip():
+                continue
+            skipping_review = False
+        kept.append(line)
+    return kept
+
+
+def format_review_block(
+    *,
+    status: str,
+    mode: str,
+    planner_model: str,
+    reviewer_model: str,
+    reviewed_at: str,
+    plan_sha256: str,
+    artifact_path: str,
+    ttl_days: int,
+    operator_fallback_reason: str = "",
+) -> list[str]:
+    lines = [
+        "review:\n",
+        f"  status: {quote_yaml(status)}\n",
+        f"  path: {quote_yaml(mode)}\n",
+        f"  planner_model: {quote_yaml(planner_model)}\n",
+        f"  reviewer_model: {quote_yaml(reviewer_model)}\n",
+        f"  reviewed_at: {quote_yaml(reviewed_at)}\n",
+        f"  plan_sha256: {quote_yaml(plan_sha256)}\n",
+        f"  verdict_artifact: {quote_yaml(artifact_path)}\n",
+        f"  ttl_days: {ttl_days}\n",
+    ]
+    if mode == "OPERATOR_FALLBACK":
+        lines.append(f"  operator_fallback_reason: {quote_yaml(operator_fallback_reason)}\n")
+    return lines
+
+
+def replace_review_frontmatter(
+    *,
+    frontmatter_lines: list[str],
+    body: str,
+    review_lines: list[str],
+) -> str:
+    updated_frontmatter = remove_existing_review(frontmatter_lines)
+    if updated_frontmatter and updated_frontmatter[-1].strip():
+        updated_frontmatter.append("\n")
+    updated_frontmatter.extend(review_lines)
+    return "---\n" + "".join(updated_frontmatter) + "---\n" + body
+
+
+def next_artifact_path(repo_root: Path, plan_id: str) -> Path:
+    directory = repo_root / "automation" / "PLAN_REVIEWS"
+    directory.mkdir(parents=True, exist_ok=True)
+    first = directory / f"{plan_id}.md"
+    if not first.exists():
+        return first
+
+    version = 2
+    while True:
+        candidate = directory / f"{plan_id}-v{version}.md"
+        if not candidate.exists():
+            return candidate
+        version += 1
+
+
+def relative_to_repo(repo_root: Path, path: Path) -> str:
+    return path.relative_to(repo_root).as_posix()
+
+
+def require_different_models(planner_model: str, reviewer_model: str) -> None:
+    if not planner_model.strip():
+        raise PlanReviewError(
+            "O review nao foi criado porque falta planner model. "
+            "Defina PLAN_REVIEW_PLANNER_MODEL ou passe --planner-model."
+        )
+    if not reviewer_model.strip():
+        raise PlanReviewError(
+            "O review nao foi criado porque falta reviewer model independente. "
+            "Defina PLAN_REVIEW_REVIEWER_MODEL ou passe --reviewer-model com um modelo diferente."
+        )
+    if planner_model.strip() == reviewer_model.strip():
+        raise PlanReviewError(
+            "O review nao foi criado porque planner e reviewer model sao iguais. "
+            "Autoaprovacao silenciosa nao e permitida."
+        )
+
+
+def artifact_text(
+    *,
+    plan_rel: str,
+    plan_id: str,
+    status: str,
+    mode: str,
+    planner_model: str,
+    reviewer_model: str,
+    reviewed_at: str,
+    ttl_days: int,
+    plan_sha256: str,
+    risk_reasons: list[str],
+    reviewer_verdict: str,
+    limitations: list[str],
+    commands: list[str],
+    provider: str,
+) -> str:
+    risk = "HIGH" if risk_reasons else "LOW"
+    risk_details = ", ".join(risk_reasons) if risk_reasons else "No high-risk marker detected."
+    limitation_lines = "\n".join(f"- {item}" for item in limitations)
+    command_lines = "\n".join(f"- `{item}`" for item in commands)
+    checklist_status = "PASS" if status in {"APPROVED", "APPROVED_WITH_CHANGES"} else "PENDING"
+
+    return f"""# Plan Review Verdict
+
+## Identity
+
+- Plan: {plan_rel}
+- Plan ID: {plan_id}
+- Status: {status}
+- Review path: {mode}
+- Planner model: {planner_model or "not-recorded"}
+- Reviewer model: {reviewer_model or "not-recorded"}
+- Review provider: {provider or "not-configured"}
+- Reviewed at: {reviewed_at}
+- TTL days: {ttl_days}
+- Plan SHA-256: {plan_sha256}
+
+## Risk Classification
+
+- Level: {risk}
+- Reasons: {risk_details}
+
+## Checklist
+
+- Plan body hash computed using `scripts/verify-plan-review.sh` contract: PASS
+- Plan body left unchanged by review preparation: PASS
+- High-risk fallback guard checked: PASS
+- Independent reviewer evidence present: {checklist_status}
+- Approved frontmatter may be written: {checklist_status}
+
+## Reviewer Verdict
+
+{reviewer_verdict}
+
+## Limitations
+
+{limitation_lines}
+
+## Commands To Run Next
+
+{command_lines}
+"""
+
+
+def write_artifact(path: Path, text: str) -> None:
+    path.write_text(text, encoding="utf-8")
+
+
+def next_turn_based_command(plan_path: str) -> str:
+    return (
+        "python3 scripts/review-plan.py "
+        f"--plan {plan_path} "
+        "--mode DUAL_TURN_BASED "
+        "--operator-reviewed "
+        "--planner-model '<planner-model>' "
+        "--reviewer-model '<reviewer-model-diferente>'"
+    )
+
+
+def fail(message: str, next_command: str | None = None) -> int:
+    print(f"review-plan: BLOCKED: {message}", file=sys.stderr)
+    print("review-plan: Este plano ainda nao e executavel.", file=sys.stderr)
+    if next_command:
+        print(
+            f"review-plan: Para seguir com seguranca, rode este comando: {next_command}",
+            file=sys.stderr,
+        )
+    print(
+        "review-plan: alternativa segura: prepare um artifact DUAL_TURN_BASED, "
+        "peca revisao a outro modelo/operador e so entao registre --operator-reviewed.",
+        file=sys.stderr,
+    )
+    return 2
+
+
+def main() -> int:
+    args = parse_args()
+    try:
+        repo_root = find_repo_root(Path.cwd())
+        plan_path = resolve_plan_path(repo_root, args.plan)
+        raw = plan_path.read_text(encoding="utf-8")
+        frontmatter_lines, body, _ = split_frontmatter(raw)
+        plan_sha256 = compute_body_hash(body)
+        ttl_days = parse_ttl_days(args.ttl_days)
+        mode = choose_mode(args)
+        if mode not in VALID_MODES:
+            raise PlanReviewError(f"invalid review mode: {mode}")
+
+        plan_id = plan_id_for(plan_path)
+        plan_rel = relative_to_repo(repo_root, plan_path)
+        artifact_path = next_artifact_path(repo_root, plan_id)
+        artifact_rel = relative_to_repo(repo_root, artifact_path)
+        reviewed_at = datetime.now(timezone.utc).isoformat()
+        risk_reasons = detect_high_risk(raw)
+        planner_model = args.planner_model.strip()
+        reviewer_model = args.reviewer_model.strip()
+        provider = args.provider.strip()
+
+        if mode == "DUAL_AUTOMATED":
+            api_key = os.getenv("PLAN_REVIEW_API_KEY", "")
+            if not api_key:
+                return fail(
+                    "O review nao foi criado porque falta PLAN_REVIEW_API_KEY para "
+                    "DUAL_AUTOMATED. Sem API key, o script nao pode fingir aprovacao automatica.",
+                    next_command=(
+                        f"python3 scripts/review-plan.py --plan {plan_rel} --mode DUAL_TURN_BASED"
+                    ),
+                )
+            require_different_models(planner_model, reviewer_model)
+            return fail(
+                "DUAL_AUTOMATED exige integracao real de provider, que este repositorio nao "
+                "configura por padrao. Nenhuma aprovacao automatica foi registrada.",
+                next_command=(
+                    f"python3 scripts/review-plan.py --plan {plan_rel} --mode DUAL_TURN_BASED"
+                ),
+            )
+
+        if mode == "OPERATOR_FALLBACK" and risk_reasons:
+            return fail(
+                "Nao use OPERATOR_FALLBACK neste caso porque o plano toca area de alto risco: "
+                + ", ".join(risk_reasons),
+                next_command=(
+                    f"python3 scripts/review-plan.py --plan {plan_rel} --mode DUAL_TURN_BASED"
+                ),
+            )
+
+        if mode == "DUAL_TURN_BASED" and not args.operator_reviewed:
+            text = artifact_text(
+                plan_rel=plan_rel,
+                plan_id=plan_id,
+                status="PENDING_REVIEW",
+                mode=mode,
+                planner_model=planner_model,
+                reviewer_model=reviewer_model,
+                reviewed_at=reviewed_at,
+                ttl_days=ttl_days,
+                plan_sha256=plan_sha256,
+                risk_reasons=risk_reasons,
+                reviewer_verdict=(
+                    "Este plano ainda nao e executavel. Peca para outro modelo/operador "
+                    "revisar o corpo final do plano, depois rode novamente com "
+                    "--operator-reviewed, --planner-model e --reviewer-model."
+                ),
+                limitations=[
+                    "Este artifact e instrucional e nao e um veredito executavel.",
+                    "O frontmatter do plano nao foi alterado.",
+                    "O plano continua bloqueado ate review.status ser APPROVED ou APPROVED_WITH_CHANGES.",
+                ],
+                commands=[
+                    next_turn_based_command(plan_rel),
+                    f"scripts/verify-plan-review.sh --plan {plan_rel}",
+                    "make verify-plan-reviews",
+                ],
+                provider=provider,
+            )
+            write_artifact(artifact_path, text)
+            print(f"review-plan: prepared pending artifact: {artifact_rel}")
+            print("review-plan: Este plano ainda nao e executavel.")
+            print("review-plan: nenhum review aprovado foi escrito no frontmatter.")
+            print(
+                "review-plan: Para seguir com seguranca, rode este comando apos a revisao independente: "
+                + next_turn_based_command(plan_rel)
+            )
+            return 0
+
+        if mode == "DUAL_TURN_BASED":
+            require_different_models(planner_model, reviewer_model)
+            status = "APPROVED"
+            operator_fallback_reason = ""
+            reviewer_verdict = (
+                "APPROVED. Operator asserted that a different reviewer model reviewed "
+                "the final plan body in a separate turn."
+            )
+            limitations = [
+                "The script records the operator-supplied review evidence; it does not call a reviewer API.",
+                "Any later plan body change invalidates this verdict by hash.",
+            ]
+        else:
+            if not args.operator_reviewed:
+                raise PlanReviewError(
+                    "OPERATOR_FALLBACK exige --operator-reviewed e checklist humano explicito."
+                )
+            if not args.operator_fallback_reason.strip():
+                raise PlanReviewError(
+                    "OPERATOR_FALLBACK exige --operator-fallback-reason com uma justificativa clara."
+                )
+            if not planner_model:
+                raise PlanReviewError(
+                    "O review nao foi criado porque falta planner model. "
+                    "Defina PLAN_REVIEW_PLANNER_MODEL ou passe --planner-model."
+                )
+            status = "APPROVED"
+            reviewer_model = reviewer_model or "human-operator"
+            operator_fallback_reason = args.operator_fallback_reason.strip()
+            reviewer_verdict = (
+                "APPROVED via OPERATOR_FALLBACK. Human operator completed the checklist "
+                "and provided an explicit fallback reason."
+            )
+            limitations = [
+                "OPERATOR_FALLBACK is valid only for low-risk plans.",
+                "Any later plan body change invalidates this verdict by hash.",
+            ]
+
+        text = artifact_text(
+            plan_rel=plan_rel,
+            plan_id=plan_id,
+            status=status,
+            mode=mode,
+            planner_model=planner_model,
+            reviewer_model=reviewer_model,
+            reviewed_at=reviewed_at,
+            ttl_days=ttl_days,
+            plan_sha256=plan_sha256,
+            risk_reasons=risk_reasons,
+            reviewer_verdict=reviewer_verdict,
+            limitations=limitations,
+            commands=[
+                f"scripts/verify-plan-review.sh --plan {plan_rel}",
+                "make verify-plan-reviews",
+            ],
+            provider=provider,
+        )
+        write_artifact(artifact_path, text)
+
+        review_lines = format_review_block(
+            status=status,
+            mode=mode,
+            planner_model=planner_model,
+            reviewer_model=reviewer_model,
+            reviewed_at=reviewed_at,
+            plan_sha256=plan_sha256,
+            artifact_path=artifact_rel,
+            ttl_days=ttl_days,
+            operator_fallback_reason=operator_fallback_reason,
+        )
+        updated = replace_review_frontmatter(
+            frontmatter_lines=frontmatter_lines,
+            body=body,
+            review_lines=review_lines,
+        )
+        plan_path.write_text(updated, encoding="utf-8")
+
+        print(f"review-plan: wrote approved artifact: {artifact_rel}")
+        print(f"review-plan: updated only review frontmatter in: {plan_rel}")
+        print("review-plan: Para seguir com seguranca, rode este comando: make verify-plan-reviews")
+        return 0
+    except PlanReviewError as exc:
+        return fail(str(exc))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+</file>
+
+<file path="scripts/verify-plan-review.sh">
+#!/usr/bin/env bash
+# Plan review gate: a plan is only executable when it carries a valid, verifiable
+# review artifact. Validates ARTIFACTS (frontmatter, hash, TTL, verdict file) and
+# never calls a model, so it runs in CI with no API key.
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$repo_root"
+
+# --changed: validate ONLY plans changed vs the base ref (diff-scoped), mirroring
+# scripts/check-sdd-compliance.sh. Per-plan checks (status/path/hash/TTL/artifact/
+# reviewer) stay STRICT for each changed plan; this only narrows the SCOPE so a PR
+# is not blocked by unrelated plans whose review TTL lapsed on the base branch.
+# Base ref: $BASE_REF, else origin/main|origin/master|main|master. In CI on a
+# pull_request a missing base FAILS; locally without a base it is an explicit skip.
+scope_changed=0
+for arg in "$@"; do
+  if [ "$arg" = "--changed" ]; then scope_changed=1; fi
+done
+
+changed_plans=""
+if [ "$scope_changed" = "1" ]; then
+  base="${BASE_REF:-}"
+  if [ -z "$base" ]; then
+    for cand in origin/main origin/master main master; do
+      if git rev-parse --verify --quiet "$cand" >/dev/null 2>&1; then base="$cand"; break; fi
+    done
+  fi
+  if [ -z "$base" ]; then
+    if [ -n "${CI:-}" ] && [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ]; then
+      echo "verify-plan-review: FAIL: no base ref resolvable in CI; set BASE_REF (e.g. origin/main)" >&2
+      exit 1
+    fi
+    echo "verify-plan-review: skipped (--changed: no base ref; set BASE_REF to enable locally)"
+    exit 0
+  fi
+  # Added/modified plans only (exclude deletions: a removed plan needs no review).
+  diff_plans="$(git diff --name-only --diff-filter=d "${base}...HEAD" -- '.cursor/plans/*.plan.md' 2>/dev/null || true)"
+  # The diff is against HEAD, so a plan renamed in the working tree still shows up
+  # under its old path while the file is already gone from disk. Drop paths that
+  # no longer exist: the same reason deletions are excluded above. The new path is
+  # still validated, either from this diff once committed or via --plan.
+  changed_plans=""
+  while IFS= read -r plan_path; do
+    [ -n "$plan_path" ] || continue
+    [ -f "$plan_path" ] || continue
+    changed_plans="${changed_plans:+${changed_plans}
+}${plan_path}"
+  done <<EOF
+${diff_plans}
+EOF
+fi
+
+# PYTHONDONTWRITEBYTECODE: importing the shared risk module must not litter the
+# working tree with __pycache__, which the packaging gate would flag.
+VPR_SCOPE_CHANGED="$scope_changed" VPR_CHANGED_PLANS="$changed_plans" \
+  PYTHONDONTWRITEBYTECODE=1 python3 - "$@" <<'PY'
+from __future__ import annotations
+
+import argparse
+import hashlib
+import os
+import sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+# The shell wrapper cd'd to the repo root. Risk classification is shared with
+# scripts/review-plan.py: the verifier must not accept an OPERATOR_FALLBACK that
+# the writer would have refused. A missing module is a hard failure, never a
+# skipped check.
+sys.path.insert(0, "scripts/lib")
+from plan_risk import detect_high_risk  # noqa: E402
+
+VALID_STATUSES = {"APPROVED", "APPROVED_WITH_CHANGES"}
+VALID_PATHS = {"DUAL_AUTOMATED", "DUAL_TURN_BASED", "OPERATOR_FALLBACK"}
+
+
+class PlanError(Exception):
+    pass
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Verify plan review artifacts")
+    parser.add_argument("--plan", help="Verify one plan strictly")
+    parser.add_argument("--all-strict", action="store_true", help="Require every plan to have an executable review")
+    parser.add_argument(
+        "--changed",
+        action="store_true",
+        help="Verify only plans changed vs the base ref (diff-scoped; strict per changed plan)",
+    )
+    return parser.parse_args()
+
+
+def split_frontmatter(raw: str) -> tuple[dict[str, str], str, bool]:
+    lines = raw.splitlines(keepends=True)
+    if not lines or lines[0].strip() != "---":
+        return {}, raw, False
+
+    end_index = None
+    for index in range(1, len(lines)):
+        if lines[index].strip() == "---":
+            end_index = index
+            break
+
+    if end_index is None:
+        raise PlanError("frontmatter start found without closing ---")
+
+    frontmatter_lines = lines[1:end_index]
+    body = "".join(lines[end_index + 1 :])
+    review = parse_review_block(frontmatter_lines)
+    return review, body, True
+
+
+def parse_review_block(frontmatter_lines: list[str]) -> dict[str, str]:
+    review: dict[str, str] = {}
+    in_review = False
+    for line in frontmatter_lines:
+        stripped = line.strip()
+        if stripped == "review:":
+            in_review = True
+            continue
+        if in_review:
+            if not line.startswith("  "):
+                break
+            item = stripped
+            if not item or ":" not in item:
+                continue
+            key, value = item.split(":", 1)
+            review[key.strip()] = value.strip().strip('"').strip("'")
+    return review
+
+
+def compute_body_hash(body: str) -> str:
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
+def parse_reviewed_at(value: str) -> datetime:
+    normalized = value.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise PlanError(f"invalid reviewed_at: {value}") from exc
+    if parsed.tzinfo is None:
+        raise PlanError("reviewed_at must include timezone")
+    return parsed
+
+
+def require(review: dict[str, str], key: str) -> str:
+    value = review.get(key, "").strip()
+    if not value:
+        raise PlanError(f"missing review.{key}")
+    return value
+
+
+def verify_plan(path: Path, strict: bool) -> str:
+    raw = path.read_text(encoding="utf-8")
+    review, body, _ = split_frontmatter(raw)
+    if not review:
+        if strict:
+            raise PlanError("missing review frontmatter block")
+        return f"SKIP {path}: no review block; draft plans are not executable"
+
+    status = require(review, "status")
+    if status not in VALID_STATUSES:
+        raise PlanError(f"review.status must be APPROVED or APPROVED_WITH_CHANGES, got {status}")
+
+    review_path = require(review, "path")
+    if review_path not in VALID_PATHS:
+        raise PlanError(f"review.path must be one of {sorted(VALID_PATHS)}, got {review_path}")
+
+    planner = require(review, "planner_model")
+    reviewer = require(review, "reviewer_model")
+    # Independence is the whole point of the review. Checking it only in the
+    # writer would let a hand-edited frontmatter self-approve.
+    if planner == reviewer:
+        raise PlanError(
+            f"planner_model and reviewer_model must differ, both are {planner!r}; "
+            "self-approval is not review"
+        )
+
+    reviewed_at = parse_reviewed_at(require(review, "reviewed_at"))
+    expected_hash = require(review, "plan_sha256")
+    artifact = Path(require(review, "verdict_artifact"))
+    ttl_days_raw = require(review, "ttl_days")
+
+    try:
+        ttl_days = int(ttl_days_raw)
+    except ValueError as exc:
+        raise PlanError(f"review.ttl_days must be integer, got {ttl_days_raw}") from exc
+
+    if ttl_days <= 0 or ttl_days > 30:
+        raise PlanError("review.ttl_days must be between 1 and 30")
+
+    if review_path == "OPERATOR_FALLBACK":
+        if not review.get("operator_fallback_reason", "").strip():
+            raise PlanError("OPERATOR_FALLBACK requires operator_fallback_reason")
+        # Same restriction the writer enforces: fallback is for low-risk plans.
+        # Verifying it here closes the hand-written frontmatter path.
+        risk = detect_high_risk(raw)
+        if risk:
+            raise PlanError(
+                "OPERATOR_FALLBACK is not valid for a high-risk plan: "
+                + ", ".join(risk)
+                + "; review it through DUAL_TURN_BASED"
+            )
+
+    actual_hash = compute_body_hash(body)
+    if actual_hash != expected_hash:
+        raise PlanError(
+            "O hash mudou; isso significa que o plano foi alterado depois do review. "
+            f"expected {expected_hash}, got {actual_hash}"
+        )
+
+    if not artifact.exists():
+        raise PlanError(f"verdict artifact not found: {artifact}")
+
+    artifact_text = artifact.read_text(encoding="utf-8")
+    if expected_hash not in artifact_text:
+        raise PlanError(f"verdict artifact does not reference plan hash: {artifact}")
+
+    now = datetime.now(timezone.utc)
+    expires_at = reviewed_at.astimezone(timezone.utc) + timedelta(days=ttl_days)
+    if now > expires_at:
+        raise PlanError(f"review expired at {expires_at.isoformat()}")
+
+    return f"OK {path}: {status} via {review_path}"
+
+
+def main() -> int:
+    args = parse_args()
+    if args.plan:
+        plans = [Path(args.plan)]
+        strict = True
+    elif os.environ.get("VPR_SCOPE_CHANGED") == "1":
+        # Diff-scoped: only plans changed vs the base ref, resolved in the shell
+        # wrapper. A plan touched by the diff MUST carry a valid review (strict).
+        raw = os.environ.get("VPR_CHANGED_PLANS", "")
+        plans = [Path(p) for p in raw.splitlines() if p.strip()]
+        strict = True
+        if not plans:
+            print("verify-plan-review: no changed plans in diff; ok")
+            return 0
+    else:
+        plans = sorted(Path(".cursor/plans").glob("*.plan.md"))
+        strict = args.all_strict
+
+    if not plans:
+        print("verify-plan-review: no plan files found")
+        return 0
+
+    failed = False
+    for plan in plans:
+        try:
+            print(verify_plan(plan, strict=strict))
+        except PlanError as exc:
+            failed = True
+            print(f"FAIL {plan}: {exc}", file=sys.stderr)
+
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY
+</file>
+
 <file path="skills/00-skill-index/SKILL.md">
 ---
 name: {{PROJECT_SLUG}}-{{PROJECT_SLUG}}-go-skill-index
@@ -4785,6 +9448,9 @@ Goal: ensure every change applies the right specialized skill and respects globa
 3. **Context Propagation**: propagate `context.Context` as the standard boundary for execution, cancellation and lifecycle.
 4. **Effective Go**: follow the 13-go skill for context, errors, interfaces, concurrency, and tests.
 5. **Observability**: emit events, logs and hooks through public contracts; never leak internal types into public signatures.
+6. **Governed Change**: a change in `pkg/**`, `internal/**`, `api/**` or `migrations/**` requires a backlog item, a dual-spec pair and a reviewed plan before the PR (skill 29).
+7. **Reviewed Plans**: a plan is executable only with a recorded verdict whose hash matches the current plan body (skill 27).
+8. **Parallel Sessions**: assume other sessions are active; reserve sequential IDs at the last moment and never force push to resolve a collision (skill 31).
 
 ## Do / Don't
 - **Do**: Identify the skill ID(s) below that match the asset you modify and load them fully.
@@ -4820,6 +9486,11 @@ Goal: ensure every change applies the right specialized skill and respects globa
   - `24-agent-readiness-governance`: `@kodus/agent-readiness` analysis filtered for {{PROJECT_SLUG}}'s Go library/framework scope.
   - `25-{{PROJECT_SLUG}}-ultra-rigid-sdd`: ultra-rigid evidence-first SDD for phase planning, autopilot prompt generation, paired implementation and diagnosis specs, reconciliation, readiness/release gates, and framework-vs-application boundaries.
   - `26-backlog-item-intake`: governed backlog intake for requests, gaps, bugs, diagnostics, recommendations and ideas persisted in `docs/backlog/Backlog.md`.
+  - `27-dual-model-plan-review`: plan review gate; a plan is executable only with a recorded, hash-bound, non-expired verdict in `automation/PLAN_REVIEWS/`.
+  - `28-plan-review-autopilot`: prepares the review artifact and `review:` frontmatter without approving anything on its own authority.
+  - `29-governed-change-workflow`: master flow for governed scope (`pkg/**`, `internal/**`, `api/**`, `migrations/**`): backlog item + dual-spec + reviewed plan before the PR.
+  - `30-third-party-service-integrations`: external services behind ports/adapters, per-tenant encrypted credentials, bounded cache, timeouts, retries and sanitized observability.
+  - `31-parallel-session-coordination`: multiple agent sessions in the same repo; late ID reservation, collision gate, post-collision integration and shared infra etiquette.
 
 ## Checklists
 **Before starting**
@@ -4852,6 +9523,10 @@ Goal: ensure every change applies the right specialized skill and respects globa
 - Example readiness review: user asks to run or apply `@kodus/agent-readiness` => load skills 20 + 21 + 24, and skill 23 when it is part of an interactive trail.
 - Example ultra-rigid phase planning: user asks for {{PROJECT_SLUG}} phase prompts, paired SDD specs, diagnosis gates, roadmap closure, or readiness confirmation => load skills 05 + 25, and skill 23 when it is part of an interactive trail.
 - Example backlog intake: user asks to register a gap, bug, recommendation or diagnostic finding in the backlog => load skills 05 + 23 + 25 + 26 before editing `docs/backlog/Backlog.md`.
+- Example governed change: user asks for a behavior change under `internal/` or `pkg/` => load skill 29 first, then 26 (backlog), 05 (dual-spec) and 27/28 (plan review) before touching code.
+- Example blocked plan: a plan cannot execute because `review:` is missing or expired => load skills 27 + 28 and prepare the gate; never edit the frontmatter by hand.
+- Example external integration: user asks to call an external API or add an agent tool that leaves the process => load skills 30 + 17 + 18, and 19 when an agent triggers the call.
+- Example parallel work: `git worktree list` or `gh pr list` shows another active session => load skill 31 before reserving any `BLG-NNNN`, spec or migration number.
 </file>
 
 <file path="skills/01-hexagonal-architecture/SKILL.md">
@@ -10300,6 +14975,844 @@ Informe:
 - próxima etapa.
 </file>
 
+<file path="skills/27-dual-model-plan-review/SKILL.md">
+---
+name: 27-dual-model-plan-review
+description: Enforces auditable dual-model review for executable plans. Use when creating, revising, approving, or executing plans, specs, diagnostics, autopilot work, migrations, hardening, parity, security, or release-readiness tracks.
+---
+
+# Dual Model Plan Review
+
+Goal: keep implementation plans executable only after an independent, recorded review proves the plan is within contract, current, and safe to run.
+
+## When to Use
+
+- Creating or editing `.cursor/plans/*.plan.md`.
+- Executing a plan produced by an agent or operator.
+- Planning changes to specs, ADRs, automation, migrations, published contracts, auth, security, `pkg/*` or `internal/*`.
+- Running autopilot or governance tracks where plan drift could bypass gates.
+
+## Required Reading
+
+1. `AGENTS.md`
+2. `skills/00-skill-index/SKILL.md`
+3. `automation/STOP_CONDITIONS.md`
+4. `automation/PLAN_REVIEWS/README.md`
+5. `resources/review_contract.md`
+
+## Non-Negotiables
+
+- A plan starts as `DRAFT_NOT_EXECUTABLE`.
+- Execution requires `APPROVED` or `APPROVED_WITH_CHANGES` in frontmatter and an artifact in `automation/PLAN_REVIEWS/`.
+- `plan_sha256` must match the current plan body hash at execution time.
+- Review artifacts are append-only after merge; later reviews use `-v2`, `-v3`, and so on.
+- `OPERATOR_FALLBACK` is last resort and must include `operator_fallback_reason`.
+- `OPERATOR_FALLBACK` is prohibited for public API surface, published contracts, migrations, auth, security, concurrency and ADR changes.
+- Review state (`APPROVED`, `REJECTED`) is separate from phase diagnosis (`PASS`, `FAIL`, `BLOCKED`).
+
+## Workflow
+
+1. Draft the plan with status `DRAFT_NOT_EXECUTABLE`.
+2. Select the strongest eligible review path:
+   - `DUAL_AUTOMATED`: planner and reviewer are from different model families.
+   - `DUAL_TURN_BASED`: operator switches model in a later turn.
+   - `OPERATOR_FALLBACK`: human reviewer completes the checklist and records a reason.
+3. Complete `resources/review_checklist.md`.
+4. Write the verdict using `resources/verdict_template.md`.
+5. Add or update the plan `review:` frontmatter with the same hash and artifact path.
+6. Run `make verify-plan-reviews` before execution.
+7. If verification fails, classify the plan as `BLOCKED` until reviewed again.
+
+Preparation of the artifact and frontmatter is automated by `skills/28-plan-review-autopilot/SKILL.md`; it prepares the gate without approving anything on its own.
+
+## Verdict Contract
+
+Every executable plan frontmatter must include:
+
+```yaml
+review:
+  status: APPROVED
+  path: DUAL_TURN_BASED
+  planner_model: "<planner-model>"
+  reviewer_model: "<reviewer-model-from-another-family>"
+  reviewed_at: 2026-01-31T09:00:00-03:00
+  plan_sha256: 64_HEX_CHARACTERS
+  verdict_artifact: automation/PLAN_REVIEWS/plan-id.md
+  ttl_days: 7
+```
+
+When `path` is `OPERATOR_FALLBACK`, include:
+
+```yaml
+  operator_fallback_reason: bootstrap-do-proprio-guardrail
+```
+
+The executable gate is `scripts/verify-plan-review.sh`: it validates artifacts (frontmatter, hash, TTL, verdict file), never calls a model, and therefore needs no API key in CI.
+
+## Do / Don't
+
+- Do prefer a reviewer model from a different family for consequential work.
+- Do reject plans with unapproved specs, missing contract updates, missing retry/DLQ requirements, or unclear tenant isolation.
+- Do regenerate the hash after incorporating required changes.
+- Do create a new versioned review artifact instead of editing an old verdict after merge.
+- Don't execute a plan just because a human said "go" if the hash or TTL fails.
+- Don't use `OPERATOR_FALLBACK` for high-risk surfaces.
+- Don't collapse plan review verdicts into phase gate results.
+
+## Checklists
+
+Before review:
+
+- [ ] The plan cites the governing specs or ADRs.
+- [ ] The plan states touched files or module boundaries.
+- [ ] The plan lists validation commands.
+- [ ] The plan starts as non-executable until reviewed.
+
+During review:
+
+- [ ] Apply `resources/review_checklist.md`.
+- [ ] Record required changes if verdict is `APPROVED_WITH_CHANGES`.
+- [ ] Record rejection reasons if verdict is `REJECTED`.
+- [ ] Compute and record `plan_sha256`.
+
+After review:
+
+- [ ] Add `review:` frontmatter to the plan.
+- [ ] Store the verdict under `automation/PLAN_REVIEWS/`.
+- [ ] Run `make verify-plan-reviews`.
+- [ ] Include verdict path, hash, models, and gaps in the final response.
+
+## Definition of Done
+
+- Plan has a valid review frontmatter block.
+- Verdict artifact exists and includes the same hash.
+- `make verify-plan-reviews` passes.
+- Any `APPROVED_WITH_CHANGES` changes are incorporated before execution.
+- Final output lists skills applied, files changed, commands/tests, review verdict, and remaining gaps.
+
+## Resources
+
+- `resources/review_contract.md`: review paths, eligibility, and blocked surfaces.
+- `resources/review_checklist.md`: mandatory review checklist.
+- `resources/verdict_template.md`: copyable review artifact template.
+- `resources/model_roles.md`: planner/reviewer role matrix.
+</file>
+
+<file path="skills/27-dual-model-plan-review/resources/model_roles.md">
+# Model Roles
+
+## Planner
+
+The planner proposes an executable path. It must:
+
+- read governing specs, ADRs, skills, and local code;
+- identify touched files and validation commands;
+- keep the plan in `DRAFT_NOT_EXECUTABLE` until reviewed;
+- avoid inventing contracts that are absent from the repository.
+
+## Reviewer
+
+The reviewer challenges the plan. It must:
+
+- verify that the plan is inside approved contracts;
+- search for gaps, contradictions, missing tests, and bypasses;
+- decide `APPROVED`, `APPROVED_WITH_CHANGES`, or `REJECTED`;
+- record hash, model identity, TTL, review path, and remaining gaps.
+
+## Operator
+
+The operator owns fallback decisions. It must:
+
+- prefer `DUAL_AUTOMATED` when available;
+- use `DUAL_TURN_BASED` when a model switch is available;
+- use `OPERATOR_FALLBACK` only for bootstrap, emergency, or low-risk plans;
+- reject fallback for restricted surfaces.
+
+## Family Separation
+
+`DUAL_AUTOMATED` requires different model families for planner and reviewer. The point is independence of failure modes: a reviewer that shares the planner's blind spots does not review, it agrees.
+
+Same-family planner/reviewer pairs are allowed only under `DUAL_TURN_BASED` with an explicit reason in the verdict artifact. `scripts/review-plan.py` refuses an identical planner and reviewer identifier outright, because that is self-approval.
+</file>
+
+<file path="skills/27-dual-model-plan-review/resources/review_checklist.md">
+# Review Checklist
+
+Use this checklist for every executable plan review.
+
+## Contract Coverage
+
+- [ ] Governing specs and ADRs are named.
+- [ ] Relevant skills are named.
+- [ ] No feature is outside an approved spec.
+- [ ] Required contract updates (OpenAPI or equivalent) are included for transport changes.
+- [ ] Required retry, DLQ, audit, metrics, alarms, and replay are included for queue flows.
+
+## Architecture Coverage
+
+- [ ] `pkg/*` stays free of dependencies on `internal/*`, except the permitted public bridge.
+- [ ] Public API changes are intentional and spec-backed, not incidental.
+- [ ] Ports and use cases remain explicit.
+- [ ] Wiring stays in the composition root (`cmd/*`).
+- [ ] No new runtime or unsupported library is introduced without a decision record.
+
+## Safety Coverage
+
+- [ ] Tenant isolation by `{{DOMAIN_ACTOR}}` identity is preserved where relevant.
+- [ ] `context.Context` and correlation identifiers propagate across boundaries.
+- [ ] Secrets are not exposed in logs, artifacts, or review documents.
+- [ ] Prompt-injection and tool safety risks are considered for agent/tool plans.
+- [ ] Auth and security changes include explicit tests or diagnostics.
+
+## Verification Coverage
+
+- [ ] Validation commands are concrete.
+- [ ] Expected outcomes are classifiable as `PASS`, `PARTIAL`, `FAIL`, or `BLOCKED`.
+- [ ] Known gaps are listed.
+- [ ] `APPROVED_WITH_CHANGES` changes are explicit and testable.
+- [ ] Plan hash and review artifact are recorded.
+</file>
+
+<file path="skills/27-dual-model-plan-review/resources/review_contract.md">
+# Review Contract
+
+## Review Paths
+
+### DUAL_AUTOMATED
+
+Use when the environment can run planner and reviewer models independently.
+
+Requirements:
+
+- Planner and reviewer must be from different model families.
+- Reviewer must inspect the plan, governing specs, relevant skills, and validation commands.
+- Verdict artifact must include the reviewer model identifier.
+
+Required for:
+
+- `pkg/**` (public API surface)
+- `internal/**` behavior changes
+- published contracts under `api/**`
+- `migrations/**`
+- auth, security and secret handling changes
+- concurrency, queue, DLQ, replay and ordering semantics
+- ADRs in `docs/decisions/`
+- release-readiness and hardening tracks
+
+### DUAL_TURN_BASED
+
+Use when the operator can switch models in the IDE or orchestration layer.
+
+Requirements:
+
+- Planner model and reviewer model must be recorded.
+- Reviewer must use the final plan content and current hash.
+- The verdict must state which changes were required or why none were required.
+
+### OPERATOR_FALLBACK
+
+Use only when dual-model execution is unavailable and the plan is low risk, or during bootstrap of this guardrail.
+
+Requirements:
+
+- `operator_fallback_reason` must be present.
+- Human reviewer must complete `review_checklist.md`.
+- Review artifact must state why a model reviewer was unavailable.
+
+Prohibited for:
+
+- public API surface in `pkg/**`;
+- published contracts under `api/**`;
+- migrations and persisted data;
+- auth, security, secrets, or tenant isolation;
+- concurrency, queue semantics, DLQ, replay, ordering and idempotency;
+- ADR creation or modification.
+
+`scripts/review-plan.py` refuses `OPERATOR_FALLBACK` when the plan text matches any high-risk marker, so this list is enforced, not merely documented.
+
+## Verdict Semantics
+
+- `APPROVED`: executable while hash and TTL remain valid.
+- `APPROVED_WITH_CHANGES`: executable only after required changes are incorporated and hash is recalculated.
+- `REJECTED`: not executable; create a revised plan and new review.
+- `DRAFT_NOT_EXECUTABLE`: never executable.
+
+## Drift Rule
+
+Any plan body change after review invalidates the verdict. The next reviewer must compare the old and new plan content, then issue a new versioned artifact.
+
+## TTL Rule
+
+Default TTL is 7 days. A TTL longer than 7 days and up to 30 days must include a risk justification in the verdict artifact. A TTL longer than 30 days is not valid.
+</file>
+
+<file path="skills/27-dual-model-plan-review/resources/verdict_template.md">
+# Plan Review Verdict
+
+Este template e a forma canonica do artefato em `automation/PLAN_REVIEWS/`. Copie e preencha quando
+o veredito for escrito a mao; `scripts/review-plan.py` gera a mesma estrutura automaticamente.
+
+## Identity
+
+- Plan: PLAN_PATH
+- Verdict artifact: VERDICT_ARTIFACT
+- Review path: REVIEW_PATH
+- Planner model: PLANNER_MODEL
+- Reviewer model: REVIEWER_MODEL
+- Reviewed at: REVIEWED_AT
+- TTL days: TTL_DAYS
+- Plan SHA-256: PLAN_SHA256
+
+## Verdict
+
+Status: APPROVED
+
+Allowed statuses:
+
+- `APPROVED`
+- `APPROVED_WITH_CHANGES`
+- `REJECTED`
+
+## Required Changes
+
+Record required changes when status is `APPROVED_WITH_CHANGES`. Use `None` when the status is `APPROVED` and no changes are required.
+
+## Rejection Reasons
+
+Record rejection reasons when status is `REJECTED`. Use `None` for approved plans.
+
+## Operator Fallback
+
+- Used: no
+- Reason: None
+
+## Checklist Result
+
+- Contract coverage: PASS
+- Architecture coverage: PASS
+- Safety coverage: PASS
+- Verification coverage: PASS
+
+## Evidence
+
+- Governing specs read: SPEC_LIST
+- Skills applied: SKILL_LIST
+- Files expected to change: FILE_LIST
+- Validation commands: COMMAND_LIST
+- Remaining gaps: GAP_LIST
+
+## Append-Only Rule
+
+After merge, do not edit this artifact. Create a versioned successor such as `PLAN_ID-v2.md` for a new review.
+
+The plan hash must appear verbatim in this artifact: `scripts/verify-plan-review.sh` rejects a verdict that does not reference the hash it claims to approve.
+</file>
+
+<file path="skills/28-plan-review-autopilot/SKILL.md">
+---
+name: 28-plan-review-autopilot
+description: Prepares auditable plan review artifacts and review frontmatter without bypassing the dual-model review gate. Use when a `.cursor/plans/*.plan.md` file is blocked by missing or invalid `review:` metadata.
+---
+
+# Plan Review Autopilot
+
+Goal: help the agent prepare the plan review gate while preserving the contract in `skills/27-dual-model-plan-review/SKILL.md`.
+
+## When To Use
+
+- A plan in `.cursor/plans/*.plan.md` is blocked because `review:` is missing, stale, expired, or invalid.
+- The user asks to prepare, generate, or repair review artifacts.
+- You need to explain why a plan remains `DRAFT_NOT_EXECUTABLE`.
+
+## Required Reading
+
+1. `AGENTS.md`
+2. `skills/27-dual-model-plan-review/SKILL.md`
+3. `skills/27-dual-model-plan-review/resources/review_contract.md`
+4. `automation/PLAN_REVIEWS/README.md`
+
+## Workflow
+
+1. Confirm the plan path and that the user wants review preparation, not functional execution.
+2. Run:
+
+```bash
+make review-plan PLAN=.cursor/plans/example.plan.md
+```
+
+3. If no reviewer API is configured, use the safe turn-based preparation:
+
+```bash
+make review-plan-turn-based PLAN=.cursor/plans/example.plan.md
+```
+
+4. Explain that a pending artifact is not approval. The plan remains blocked until a different reviewer model/operator reviews the final plan body.
+5. After independent turn-based review, record it explicitly:
+
+```bash
+python3 scripts/review-plan.py --plan .cursor/plans/example.plan.md --mode DUAL_TURN_BASED --operator-reviewed --planner-model "<planner-model>" --reviewer-model "<different-model>"
+```
+
+6. Validate before execution:
+
+```bash
+make verify-plan-reviews
+```
+
+## Mode Rules
+
+- `DUAL_AUTOMATED`: requires `PLAN_REVIEW_API_KEY`, `PLAN_REVIEW_PLANNER_MODEL`, and a different `PLAN_REVIEW_REVIEWER_MODEL`. The script refuses to fake approval when provider automation is unavailable.
+- `DUAL_TURN_BASED`: safe default when there is no reviewer API. Creates a pending artifact unless `--operator-reviewed` and a different reviewer model are supplied.
+- `OPERATOR_FALLBACK`: last resort only. It is blocked for high-risk plans and requires `--operator-fallback-reason`.
+
+CI never needs `PLAN_REVIEW_API_KEY`: the gate `scripts/verify-plan-review.sh` validates artifacts, it does not produce them.
+
+## Explain It Simply
+
+Tell newer contributors: the script prepares the paperwork for review. It does not make an unsafe plan executable by itself. A plan becomes executable only when the review block, artifact, hash, TTL, and reviewer evidence all pass verification.
+
+Use clear messages:
+
+- "Este plano ainda nao e executavel."
+- "O review nao foi criado porque falta reviewer model independente."
+- "Para seguir com seguranca, rode este comando..."
+- "Nao use OPERATOR_FALLBACK neste caso porque o plano toca area de alto risco."
+- "O hash mudou; isso significa que o plano foi alterado depois do review."
+
+## Non-Negotiables
+
+- Do not change the plan body while preparing review.
+- Do not execute a functional plan before review verification passes.
+- Do not use the same model as planner and reviewer.
+- Do not use `OPERATOR_FALLBACK` for public API surface, published contracts, migrations, auth, security, secrets, concurrency, queues, DLQ, replay, idempotency, ordering, or ADRs.
+- Do not remove or weaken `scripts/verify-plan-review.sh`.
+
+## Definition Of Done
+
+- Artifact exists under `automation/PLAN_REVIEWS/`.
+- Approved plans have valid `review:` frontmatter and unchanged body hash.
+- Pending artifacts are clearly marked as non-executable.
+- `make verify-plan-reviews` passes before any plan execution.
+- Final response lists files changed, commands run, results, risks, next steps, applied skills, and gaps.
+</file>
+
+<file path="skills/29-governed-change-workflow/SKILL.md">
+---
+name: 29-governed-change-workflow
+description: Fluxo mestre obrigatorio para mudancas em escopo governado (pkg/**, internal/**, api/**, migrations/**). Use ao iniciar qualquer feature, fix, refactor ou mudanca de contrato/dados, garantindo BLG-NNNN + par dual-spec + plano revisado antes do PR.
+---
+
+# Governed Change Workflow
+
+Goal: garantir que nenhuma mudanca em escopo governado seja desenvolvida ou submetida sem o trio obrigatorio (item de backlog + par dual-spec + plano revisado), declarado no corpo do PR e validado por gate executavel.
+
+## When to Use
+
+- Antes de editar `pkg/**`, `internal/**`, `api/**` ou `migrations/**`.
+- Ao receber pedido de feature, fix, refactor ou mudanca de contrato/dados que toque esses caminhos.
+
+## Nao use
+
+- Para mudanca apenas em docs puras, tooling de governanca (`scripts/`, `.cursor/`, `.github/`, `Makefile`) ou specs isoladas fora do escopo governado.
+
+## Required Reading
+
+1. `AGENTS.md`
+2. `skills/00-skill-index/SKILL.md`
+3. `.cursor/rules/governed-change-enforcement.mdc`
+4. `skills/26-backlog-item-intake/SKILL.md`
+5. `skills/05-{{PROJECT_SLUG}}-spec-architect/SKILL.md`
+6. `skills/27-dual-model-plan-review/SKILL.md` e `skills/28-plan-review-autopilot/SKILL.md`
+
+## Non-Negotiables
+
+- Escopo governado exige o trio; sem qualquer parte dele, pare e registre o gap (nao avance por narrativa).
+- Backlog canonico: `BLG-NNNN` em `docs/backlog/Backlog.md`, com `Status` em `ready_for_implementation`, `in_progress` ou `done` no momento do PR.
+- Par dual-spec: spec de construcao `NNN` + spec de diagnostico `NNN+1` terminada em `-diagnosis.md`; decisao amendar vs nova trilha via `skills/05-{{PROJECT_SLUG}}-spec-architect`.
+- Plano em `.cursor/plans/*.plan.md` com review `APPROVED`/`APPROVED_WITH_CHANGES` (`skills/27`/`28`); `make verify-plan-reviews` PASS.
+- Declarar `## Backlog`, `## Specs lidas`, `## Autopilot` e `## Regressao` no corpo do PR.
+- Nao contornar `scripts/check-governed-change.sh`; excecoes apenas via `.guardrails/governed-change-exceptions.yaml` com `expires_at`.
+
+## Workflow
+
+1. Intake: registre ou atualize o item `BLG-NNNN` (`skills/26-backlog-item-intake`).
+2. Spec architect: crie ou estenda o par dual-spec (`skills/05-{{PROJECT_SLUG}}-spec-architect`).
+3. Autopilot: registre a trilha em `automation/INTERACTIVE_STATE.json` (`interactive_sdd_autopilot`, `automation/INTERACTIVE_RUNBOOK.md`) como estado EFEMERO/LOCAL; nao versione essa mudanca no PR, porque estado operacional transitorio gera conflito entre branches e sessoes. A prova de autopilot exigida pelo gate e o plano revisado, nao o state.
+4. Plano: crie `.cursor/plans/<id>.plan.md` e passe pelo gate de review (`skills/27`/`28`; `make verify-plan-reviews`).
+5. Implemente conforme as specs; preserve propagacao de `context.Context` e dos identificadores de correlacao.
+6. Preencha o corpo do PR (`## Backlog`, `## Specs lidas`, `## Autopilot`, `## Regressao`) e rode `make pre-pr PR_BODY=<arquivo>`.
+7. Classifique `PASS/PARTIAL/FAIL/BLOCKED` e registre gaps restantes.
+
+## Reserva de identificadores em sessoes paralelas
+
+`BLG-NNNN`, `specs/NNN` e `migrations/NNNN` sao sequenciais e por isso colidem entre sessoes que trabalham em paralelo. Reserve-os no ultimo momento antes do commit e aplique `skills/31-parallel-session-coordination/SKILL.md`; o gate executavel e `scripts/check-parallel-collision.sh`.
+
+## Definition of Done
+
+- `scripts/check-governed-change.sh` PASS para o PR.
+- `BLG-NNNN`, par dual-spec e plano revisado coerentes e cruzados.
+- `make pre-pr` PASS; entrega lista skills aplicadas, arquivos alterados, comandos/testes, veredito do plano e gaps.
+</file>
+
+<file path="skills/30-third-party-service-integrations/SKILL.md">
+---
+name: 30-third-party-service-integrations
+description: Design, implement and review third-party service integrations using ports/adapters, encrypted per-tenant credentials, bounded credential cache, timeouts, retries, circuit breakers and sanitized observability. Use when adding or changing any adapter that calls an external system, or any agent tool that reaches outside the process.
+---
+
+# Third-party Service Integrations
+
+Goal: manter integracoes externas seguras, escopadas por tenant e substituiveis, permitindo muitos
+servicos sem que nenhum deles vire dependencia arquitetural do core.
+
+## When to Use
+
+- Adicionar ou alterar integracao com {{EXTERNAL_SYSTEM}} ou qualquer provider HTTP/gRPC externo.
+- Construir tools de agente que leem ou escrevem em sistemas externos.
+- Adicionar configuracao de credencial, lookup de token, cache de token, auth de adapter, retry,
+  circuit breaker ou mapeamento de erro de provider.
+
+## Required Reading
+
+1. `AGENTS.md` e a spec governante da integracao.
+2. `skills/01-hexagonal-architecture/SKILL.md` e `skills/17-solid-go-ports/SKILL.md`.
+3. `skills/18-security-owasp-api/SKILL.md` e `skills/19-prompt-injection-llm-safety/SKILL.md` quando a
+   chamada for disparada por agente ou tool.
+4. `skills/08-redis-cache-streams/SKILL.md` e `skills/12-observability-zap-otel-prom/SKILL.md` quando o
+   escopo alcancar cache ou telemetria.
+
+## Non-negotiables
+
+1. Todo servico tem um port de saida explicito e um adapter especifico do vendor. Nenhuma chamada
+   direta de SDK ou HTTP a partir do dominio ou da aplicacao.
+2. Contratos do core usam DTOs canonicos. Payload externo, tipos de SDK e erros de provider ficam
+   dentro do adapter.
+3. Credenciais sao escopadas por {{DOMAIN_ACTOR}} e por chave de servico, cifradas em repouso e nunca
+   registradas em log, span, fixture ou artefato de review.
+4. Cache de credencial tem TTL explicito e limitado. Cache sem TTL e sem invalidacao vira credencial
+   revogada que continua funcionando.
+5. Atualizacao de credencial invalida a chave de cache afetada **antes** de a mudanca ser considerada
+   concluida.
+6. Adapters usam deadline de contexto, timeout configurado, retry limitado com backoff e mapeamento
+   sanitizado de erro. Retry infinito transforma indisponibilidade do provider em indisponibilidade
+   propria.
+7. Tool com efeito colateral passa por gate de politica antes de chamar o servico externo.
+8. Observabilidade preserva correlacao e chave de servico, resultado e latencia, sem dado pessoal nem
+   segredo.
+
+## Do / Don't
+
+- **Do** definir ports pequenos, de propriedade do consumidor, com 1 a 3 metodos.
+- **Do** separar resolucao de credencial da operacao de negocio quando isso mantem as interfaces
+  pequenas.
+- **Do** validar chave de servico, tipo de auth, limites de TTL e formato do token antes de persistir.
+- **Do** retornar erro de dominio ou aplicacao a partir do caso de uso, nunca erro cru do provider.
+- **Don't** ramificar logica do core por nome de provider; a selecao acontece no wiring.
+- **Don't** fazer fallback para credencial global compartilhada sem decisao registrada: fallback
+  silencioso quebra o isolamento por tenant.
+- **Don't** cachear token em variavel global de processo sem TTL nem invalidacao.
+- **Don't** colocar loop de retry dentro da tool se isso altera a semantica observavel definida pelo
+  contrato do adapter.
+
+## Interfaces / Contracts
+
+Port de resolucao de credencial:
+
+```go
+type CredentialResolver interface {
+    Resolve(ctx context.Context, tenant TenantID, service ServiceKey) (Credential, error)
+}
+```
+
+Port de servico (exemplo):
+
+```go
+type OrderReader interface {
+    Get(ctx context.Context, tenant TenantID, ref OrderRef) (Order, error)
+}
+```
+
+Formato de persistencia esperado (campos minimos):
+
+```text
+integration_credential(
+  tenant_id,
+  service_key,
+  auth_type,
+  token_prefix,
+  token_hash,
+  token_encrypted,
+  ttl_seconds,
+  is_active,
+  last_used_at,
+  audit fields
+)
+```
+
+O `token_prefix` e o `token_hash` existem para permitir diagnostico e deteccao de rotacao sem
+descriptografar nada.
+
+Formato de chave de cache:
+
+```text
+tenant:{tenant_id}:integration:{service_key}:credential
+```
+
+## Checklists
+
+**Before**
+- [ ] Identificar o port canonico e os DTOs que o caso de uso precisa.
+- [ ] Definir chave de servico, tipo de auth, TTL default/maximo e politica de fallback.
+- [ ] Identificar gates de politica e risco de prompt injection se um agente ou tool disparar a chamada.
+- [ ] Identificar endpoints de configuracao necessarios para gerenciar a credencial.
+
+**During**
+- [ ] Manter codigo de SDK e cliente HTTP apenas no adapter.
+- [ ] Resolver credencial com descriptografia e cache com TTL explicito.
+- [ ] Adicionar timeout, retry com backoff e circuit breaker quando aplicavel.
+- [ ] Mapear falha de provider para erro de aplicacao sanitizado.
+- [ ] Emitir metricas e traces sem segredo nem dado pessoal no payload.
+
+**After**
+- [ ] Teste unitario do caso de uso com fakes.
+- [ ] Teste de adapter com servidor falso, cobrindo timeout, retry e falha de auth.
+- [ ] Teste de integracao para cifragem de credencial, TTL de cache e invalidacao.
+- [ ] Atualizar contrato publicado e docs se os endpoints de gerenciamento mudaram.
+- [ ] Atualizar runbook de rotacao/revogacao de token e comportamento em indisponibilidade do provider.
+
+## Definition of Done
+
+- Integracao esta atras de port, adapter e wiring na composition root.
+- Credenciais cifradas em repouso, cacheadas com TTL limitado e invalidadas na atualizacao.
+- Logs, traces e metricas preservam correlacao e nunca expoem token nem payload sensivel.
+- Testes provam sucesso, falha de auth, comportamento de timeout/retry, cache hit/miss e invalidacao.
+- Spec, contrato publicado e runbooks relevantes atualizados.
+</file>
+
+<file path="skills/31-parallel-session-coordination/SKILL.md">
+---
+name: 31-parallel-session-coordination
+description: Coordinate parallel agent sessions working on different tasks in the same repo. Use before reserving sequential IDs (BLG-NNNN, specs, migrations), creating branches, publishing PRs, touching shared local infra, or whenever another active session is detected - to prevent ID collisions, duplicated branches/PRs, backlog merge conflicts and shared-infra interference.
+---
+
+# Parallel Session Coordination
+
+Goal: permitir que varias sessoes de agente trabalhem simultaneamente no mesmo
+repositorio, em tarefas diferentes, sem colidir em IDs sequenciais, branches, PRs,
+arquivos append-heavy ou infraestrutura local compartilhada.
+
+O desenho aceita que **nao existe exclusao mutua entre sessoes**: a estrategia e
+deteccao + reserva tardia + integracao, nunca sobrescrita. Uma sessao que assume
+exclusividade produz exatamente os incidentes que esta skill previne.
+
+## When to Use
+
+- Antes de reservar qualquer ID sequencial: `BLG-NNNN`, `specs/NNN` (par dual),
+  `migrations/NNNN`, numero de skill, plan-id em `.cursor/plans/` +
+  `automation/PLAN_REVIEWS/`, nome de arquivo de corpo de PR.
+- Antes de criar branch ou publicar (`git push`, `gh pr create`, `gh pr edit`).
+- Antes de subir, derrubar ou migrar infra local compartilhada (banco, cache,
+  emuladores, portas de dev server).
+- Ao detectar qualquer sinal de sessao paralela (Protocolo A).
+- Ao receber push rejeitado por non-fast-forward.
+
+## Required Reading
+
+1. `AGENTS.md`
+2. `skills/26-backlog-item-intake/SKILL.md` (identidade `BLG-NNNN` e template)
+3. `skills/05-{{PROJECT_SLUG}}-spec-architect/SKILL.md` (numeracao dual-spec)
+4. `.cursor/rules/pre-pr-before-push.mdc` (gate `make pre-pr`)
+5. `.cursor/rules/pr-body-gate.mdc` (corpo de PR via body-file)
+
+## Non-Negotiables
+
+1. Reserva tardia: ID sequencial e calculado no ultimo momento antes do commit
+   que o usa, nunca no planejamento. Todo recalculo usa **sort numerico**
+   (lexicografico quebra na virada de casa decimal).
+2. Duas fontes na reserva: base recem-fetchada **e** PRs abertos (texto,
+   `headRefName` e paths de arquivos). Um ID pode estar consumido num PR ainda
+   nao mergeado, invisivel na base.
+3. Branch nomeada `{tipo}/blg{NNNN}-<slug>` (`fix/`, `feat/`, `docs/`, `tests/`,
+   `chore/`). O ID no nome e a chave de deduplicacao entre sessoes. Renumerou
+   antes de publicar? Renomeie a branch.
+4. Force push e proibido para resolver colisao. Push rejeitado por
+   non-fast-forward significa parar e aplicar o Protocolo D.
+5. Trabalho que gera commit nasce em worktree dedicado a partir da base
+   recem-fetchada; nunca commitar do workspace principal quando houver trabalho
+   em andamento nao relacionado.
+6. Conflito no backlog preserva os itens de **ambas** as sessoes; conflito de
+   lockfile nao se resolve a mao - rebase e regenere com a toolchain.
+7. Infra compartilhada nao se recria, migra ou semeia sem confirmar que nenhuma
+   outra sessao a usa; container de outro projeto nunca e derrubado por conflito
+   de porta.
+
+## Protocolo A - Deteccao de sessoes paralelas
+
+Rode no inicio da sessao e antes de decisoes de publicacao. Sinais em ordem de
+forca:
+
+```bash
+git worktree list                       # worktrees ativos: sinal mais direto
+gh pr list --state open --json number,title,headRefName,isDraft
+git fetch --all -q && git for-each-ref --sort=-committerdate refs/remotes/origin --format='%(committerdate:short) %(refname:short)' | head -10
+docker ps                               # sinal auxiliar: infra de pe, nao diz quem usa
+```
+
+Qualquer sinal positivo = assumir coordenacao ativa e aplicar os protocolos B-F
+integralmente.
+
+## Protocolo B - Reserva tardia de IDs
+
+```bash
+git fetch origin main -q
+
+# maior item no backlog (numerico; lexicografico quebra na virada BLG-0999 -> BLG-1000):
+git show origin/main:docs/backlog/Backlog.md \
+  | rg -o '^### BLG-([0-9]{4})' -r '$1' | sort -n | tail -1
+
+# maior spec e migration na base:
+git ls-tree -r --name-only origin/main specs/ | rg -o 'specs/([0-9]{3})' -r '$1' | sort -n | tail -1
+git ls-tree --name-only origin/main migrations/ | rg -o 'migrations/([0-9]{4})' -r '$1' | sort -n | tail -1
+
+# IDs citados em PRs abertos (titulo, corpo e branch):
+gh pr list --state open --json title,body,headRefName --jq '.[]|"\(.title) \(.body // "") \(.headRefName)"' | rg -o '(BLG-|blg)[0-9]+' | rg -o '[0-9]+' | sort -n | uniq
+
+# specs/migrations tocados por PRs abertos (paths de arquivos):
+gh pr list --state open --json number --jq '.[].number' | xargs -I{} gh pr view {} --json files --jq '.files[].path' | rg '^(specs|migrations)/[0-9]+' | sort -u
+```
+
+Gate executavel: `scripts/check-parallel-collision.sh` automatiza este protocolo -
+detecta os IDs que a branch introduz e cruza as tres fontes. Roda no
+`beforeShellExecution` de `git push`/`gh pr create` e em `make guardrails`/`pre-pr`.
+Os comandos acima seguem validos para reserva manual e diagnostico.
+
+Limitacao declarada: a varredura de PRs e **heuristica, nao garantia**. Um PR pode
+reservar um ID sem cita-lo em titulo, corpo, branch ou paths - por isso o
+cruzamento de tres fontes. A colisao residual e absorvida pelo Protocolo D quando
+o merge acusar.
+
+Em colisao: renumere, revalide toda referencia cruzada (plano, corpo do PR, specs,
+backlog) e **renomeie a branch se ainda nao publicada**. Se ja publicada, registre
+a discrepancia nome-da-branch vs ID no corpo do PR.
+
+## Protocolo C - Gate pre-publicacao
+
+Imediatamente antes de `git push` / `gh pr create`, nesta ordem:
+
+```bash
+scripts/check-parallel-collision.sh                # IDs + Protocolo C de uma vez
+git fetch origin main -q
+git ls-remote origin <branch>                      # ja existe? -> Protocolo D
+gh pr list --state open --head <branch>            # PR aberto para a branch? (chave objetiva)
+# re-executar Protocolo B (IDs ainda livres?)
+make pre-pr PR_BODY=<arquivo>                      # exit 0 obrigatorio
+```
+
+Depois de criar ou editar o PR:
+
+```bash
+gh pr view <N> --json isDraft,state,mergeable      # draft silencioso custa uma rodada
+```
+
+## Protocolo D - Integracao pos-colisao
+
+Quando a branch remota ja contem trabalho de outra sessao (push rejeitado ou
+`ls-remote` positivo):
+
+1. `git fetch origin <branch>` e compare as solucoes:
+   `git diff origin/<branch> HEAD -- <paths>`.
+2. Se equivalentes, integre por rebase mantendo so o que agrega:
+   `git rebase origin/<branch>` e resolva conflitos preservando a base remota.
+3. Prove o fast-forward antes de publicar:
+   `git merge-base --is-ancestor origin/<branch> HEAD && echo fast-forward-ok`.
+4. Publique sem force e, se necessario, sem mover a branch local:
+   `git push origin <sha>:refs/heads/<branch>`.
+5. Registre no corpo do PR que houve convergencia de sessoes.
+
+Armadilha documentada: depois de integrar, **nao** rebasear sobre a base - isso
+reescreve os commits da outra sessao ja publicados e quebra o fast-forward. O diff
+do PR usa merge-base com a base, entao o rebase sobre ela e desnecessario.
+
+## Protocolo E - Infra local compartilhada
+
+Verificacao passiva antes de qualquer acao que altere estado:
+
+```bash
+docker ps                                   # o que esta de pe e em quais portas
+# versao de schema aplicada no banco compartilhado vs ultima migration do checkout
+ls migrations/ | tail -1
+```
+
+- Versao de schema no banco alem da ultima migration do checkout = outra sessao
+  com migration nova aplicada; **pare e coordene** antes de migrar.
+- Proibido recriar, migrar ou semear infra compartilhada sem confirmar que
+  nenhuma sessao a usa.
+- Porta ocupada por container de outro projeto: use o servico existente quando
+  compativel, ou suba isolado com projeto/portas alternativas e banco dedicado.
+  Nunca derrube o container alheio.
+
+## Protocolo F - Backlog e arquivos append-heavy
+
+Este repositorio mantem o backlog em **arquivo unico**: `docs/backlog/Backlog.md`.
+Isso e mais simples de navegar e mais sujeito a conflito de merge que um modelo de
+um arquivo por item. A mitigacao e procedimental:
+
+- Item novo entra **sempre ao final** da secao de itens, e o ID e reservado no
+  ultimo momento (Protocolo B).
+- Rebase imediatamente antes do push, para que o conflito apareca localmente e
+  nao no merge.
+- Conflito em `docs/backlog/Backlog.md` resolve-se preservando os itens de
+  **ambas** as sessoes. Descartar o item alheio e perda silenciosa de trabalho.
+- Se duas sessoes reservaram o mesmo `BLG-NNNN`, renumere o seu (nao o alheio se o
+  outro ja publicou), atualize as referencias cruzadas e rode
+  `scripts/check-parallel-collision.sh` de novo.
+
+**O caso mais perigoso nao e o conflito: e o merge que o git resolve sozinho.**
+Duas PRs que adicionam itens em regioes diferentes do arquivo podem mesclar sem
+conflito e produzir dois itens com o mesmo ID. Portanto: PR que toca o backlog
+precisa estar atualizada com a base **no momento do merge**, nao apenas quando o
+CI rodou. O CI valida o PR isolado; o resultado do merge nao passa por gate.
+
+Para os demais arquivos append-heavy (indice de skills, matriz de features):
+
+- Item novo sempre ao final da secao; rebase imediatamente antes do push;
+  conflito resolve-se preservando o conteudo de **ambas** as sessoes.
+- Alternativa avaliada e rejeitada: `merge=union` via `.gitattributes` -
+  quebraria tabelas e contadores agregados em silencio.
+
+## Do / Don't
+
+- Do: recalcular IDs com sort numerico imediatamente antes do commit.
+- Do: usar `gh pr list --state open --head <branch>` como chave de deduplicacao.
+- Do: conferir `isDraft` apos criar/editar PR.
+- Don't: force push para "destravar" push rejeitado.
+- Don't: resolver conflito de backlog descartando o item da outra sessao.
+- Don't: editar lockfile a mao em conflito.
+- Don't: confiar apenas no texto de PRs abertos para saber IDs reservados.
+
+## Stop Conditions
+
+- Integracao exigiria force push ou descarte de trabalho alheio.
+- PR aberto de outra sessao duplica o mesmo objetivo (decisao humana sobre qual
+  segue).
+- ID em disputa com PR aberto de outra sessao (coordenar antes de renumerar).
+- Infra compartilhada em uso quando o trabalho exige recria-la ou migra-la.
+
+## Definition of Done
+
+- Nenhum ID sequencial publicado colide com a base nem com PRs abertos.
+- Branch publicada segue `{tipo}/blg{NNNN}-<slug>` com o ID correto.
+- Push realizado sem force; colisoes integradas com fast-forward provado.
+- `scripts/check-parallel-collision.sh` PASS.
+- PR publicado fora de draft, com `make pre-pr` exit 0.
+
+## Final Response Format
+
+Ao aplicar esta skill, registre na entrega: sinais de sessao paralela detectados,
+IDs recalculados (valor e fontes), colisoes encontradas e protocolo aplicado,
+comandos executados e gaps restantes.
+</file>
+
 <file path="specs/000-project-mission.md">
 # Spec 000: Project Mission
 
@@ -10810,6 +16323,1009 @@ import "testing"
 
 func TestSecurityBaselineExists(t *testing.T) {
 	t.Parallel()
+}
+</file>
+
+<file path="tools/guardrails/allowlist.go">
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"strings"
+	"time"
+)
+
+// Exception is one allowlist entry shared by all guardrail allowlists.
+type Exception struct {
+	Path          string
+	Symbol        string
+	Rule          string
+	Justification string
+	Owner         string
+	ExpiresAt     string
+	Ref           string
+	line          int
+}
+
+// loadAllowlist parses and validates a .guardrails/*.yaml allowlist using a
+// stdlib-only line reader (the format is intentionally flat). A missing or
+// malformed file is a hard error; it is never treated as "no exceptions",
+// because deleting the allowlist must not be a way to pass the gate.
+// requireSymbol enforces the symbol field for symbol-scoped allowlists.
+func loadAllowlist(path string, requireSymbol bool) ([]Exception, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("allowlist %s: cannot open (%v); create it with `exceptions: []` if there are none", path, err)
+	}
+	defer f.Close()
+
+	var (
+		entries   []Exception
+		cur       *Exception
+		inList    bool
+		sawHeader bool
+	)
+	flush := func() error {
+		if cur == nil {
+			return nil
+		}
+		if err := validateException(path, *cur, requireSymbol); err != nil {
+			return err
+		}
+		entries = append(entries, *cur)
+		cur = nil
+		return nil
+	}
+
+	scanner := bufio.NewScanner(f)
+	lineNo := 0
+	for scanner.Scan() {
+		lineNo++
+		raw := scanner.Text()
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "exceptions:") {
+			inList = true
+			sawHeader = true
+			// support inline "exceptions: []"
+			if strings.Contains(trimmed, "[]") {
+				inList = false
+			}
+			continue
+		}
+		if !inList {
+			// top-level keys (e.g. version:) are ignored
+			continue
+		}
+		if strings.HasPrefix(trimmed, "- ") {
+			if err := flush(); err != nil {
+				return nil, err
+			}
+			cur = &Exception{line: lineNo}
+			trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "-"))
+			if trimmed == "" {
+				continue
+			}
+		}
+		if cur == nil {
+			return nil, fmt.Errorf("allowlist %s:%d: field outside of a list item: %q", path, lineNo, raw)
+		}
+		key, value, ok := splitKV(trimmed)
+		if !ok {
+			return nil, fmt.Errorf("allowlist %s:%d: malformed line: %q", path, lineNo, raw)
+		}
+		switch key {
+		case "path":
+			cur.Path = value
+		case "symbol":
+			cur.Symbol = value
+		case "rule":
+			cur.Rule = value
+		case "justification":
+			cur.Justification = value
+		case "owner":
+			cur.Owner = value
+		case "expires_at":
+			cur.ExpiresAt = value
+		case "ref":
+			cur.Ref = value
+		default:
+			return nil, fmt.Errorf("allowlist %s:%d: unknown field %q", path, lineNo, key)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("allowlist %s: read error: %v", path, err)
+	}
+	if err := flush(); err != nil {
+		return nil, err
+	}
+	if !sawHeader {
+		return nil, fmt.Errorf("allowlist %s: missing 'exceptions:' section", path)
+	}
+	return entries, nil
+}
+
+func splitKV(s string) (string, string, bool) {
+	idx := strings.Index(s, ":")
+	if idx < 0 {
+		return "", "", false
+	}
+	key := strings.TrimSpace(s[:idx])
+	value := strings.TrimSpace(s[idx+1:])
+	value = strings.Trim(value, "\"'")
+	return key, value, key != ""
+}
+
+func validateException(path string, e Exception, requireSymbol bool) error {
+	missing := []string{}
+	if e.Path == "" {
+		missing = append(missing, "path")
+	}
+	if e.Rule == "" {
+		missing = append(missing, "rule")
+	}
+	if e.Justification == "" {
+		missing = append(missing, "justification")
+	}
+	if e.Owner == "" {
+		missing = append(missing, "owner")
+	}
+	if e.ExpiresAt == "" {
+		missing = append(missing, "expires_at")
+	}
+	if e.Ref == "" {
+		missing = append(missing, "ref")
+	}
+	if requireSymbol && e.Symbol == "" {
+		missing = append(missing, "symbol")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("allowlist %s:%d: entry %q missing required field(s): %s", path, e.line, e.Path, strings.Join(missing, ", "))
+	}
+	exp, err := time.Parse("2006-01-02", e.ExpiresAt)
+	if err != nil {
+		return fmt.Errorf("allowlist %s:%d: entry %q has invalid expires_at %q (want YYYY-MM-DD)", path, e.line, e.Path, e.ExpiresAt)
+	}
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	if exp.Before(today) {
+		return fmt.Errorf("allowlist %s:%d: entry %q expired at %s (refactor or renew with justification)", path, e.line, e.Path, e.ExpiresAt)
+	}
+	return nil
+}
+
+// allowKey builds the lookup key used to match findings to allowlist entries.
+func allowKey(path, symbol string) string {
+	if symbol == "" {
+		return path
+	}
+	return path + "::" + symbol
+}
+
+func allowlistSet(entries []Exception) map[string]bool {
+	set := make(map[string]bool, len(entries))
+	for _, e := range entries {
+		set[allowKey(e.Path, e.Symbol)] = true
+	}
+	return set
+}
+
+// runAllowlistPaths validates an allowlist and prints its path values, one per
+// line. Used by bash gates (e.g. package-clean) so allowlist validation stays
+// centralized in Go.
+func runAllowlistPaths(args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("usage: guardrails allowlist-paths <file>")
+	}
+	entries, err := loadAllowlist(args[0], false)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		fmt.Println(e.Path)
+	}
+	return nil
+}
+</file>
+
+<file path="tools/guardrails/architecture.go">
+package main
+
+import (
+	"fmt"
+	"go/token"
+	"os"
+	"strings"
+)
+
+// applicationForbidden lists import substrings application code must not use
+// (concrete infra, frameworks, vendor SDKs and concrete telemetry). Telemetry
+// reaches the application layer through a port wired in the composition root.
+var applicationForbidden = []string{
+	"/internal/adapters",
+	"/internal/adapter",
+	"github.com/gin-gonic/gin",
+	"github.com/go-chi/chi",
+	"github.com/labstack/echo",
+	"github.com/jackc/pgx",
+	"github.com/redis/go-redis",
+	"github.com/aws/aws-sdk",
+	"github.com/golang-jwt",
+	"github.com/prometheus/client_golang",
+	"go.uber.org/zap",
+	"go.opentelemetry.io",
+	"net/http",
+}
+
+// externalSDKs may only be imported from adapters or the composition root.
+var externalSDKs = []string{
+	"github.com/gin-gonic/gin",
+	"github.com/go-chi/chi",
+	"github.com/labstack/echo",
+	"github.com/jackc/pgx",
+	"github.com/redis/go-redis",
+	"github.com/aws/aws-sdk",
+	"github.com/golang-jwt",
+}
+
+func modulePath() string {
+	data, err := os.ReadFile("go.mod")
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "module ") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "module "))
+		}
+	}
+	return ""
+}
+
+func isStdlibImport(path string) bool {
+	first := path
+	if i := strings.Index(path, "/"); i >= 0 {
+		first = path[:i]
+	}
+	return !strings.Contains(first, ".")
+}
+
+func importsOf(fset *token.FileSet, path string) ([]string, error) {
+	file, err := parseGoFile(fset, path)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, imp := range file.Imports {
+		out = append(out, strings.Trim(imp.Path.Value, "\""))
+	}
+	return out, nil
+}
+
+func compositionRootOrAdapter(path string) bool {
+	return strings.Contains(path, "internal/adapters/") ||
+		strings.Contains(path, "internal/adapter/") ||
+		strings.Contains(path, "internal/bootstrap/") ||
+		strings.HasPrefix(path, "cmd/")
+}
+
+// publicBridge is the single package allowed to reach into internal/ from the
+// public surface. Everything else in pkg/ must stay independent of internal/.
+const publicBridge = "pkg/app/"
+
+func runArchitecture() error {
+	mod := modulePath()
+	fset := token.NewFileSet()
+	var violations []string
+
+	// Domain: stdlib + own domain package only.
+	domainFiles, err := listProductionGoFiles("internal/domain")
+	if err != nil {
+		return err
+	}
+	if mod != "" {
+		domainPkg := mod + "/internal/domain"
+		for _, f := range domainFiles {
+			imps, err := importsOf(fset, f)
+			if err != nil {
+				return err
+			}
+			for _, imp := range imps {
+				if isStdlibImport(imp) || imp == domainPkg || strings.HasPrefix(imp, domainPkg+"/") {
+					continue
+				}
+				violations = append(violations, fmt.Sprintf("%s: domain must import stdlib only, found %q", f, imp))
+			}
+		}
+	}
+
+	// Application: denylist of concrete infra/frameworks/SDKs/telemetry.
+	appFiles, err := listProductionGoFiles("internal/application")
+	if err != nil {
+		return err
+	}
+	for _, f := range appFiles {
+		imps, err := importsOf(fset, f)
+		if err != nil {
+			return err
+		}
+		for _, imp := range imps {
+			for _, bad := range applicationForbidden {
+				if strings.Contains(imp, bad) {
+					violations = append(violations, fmt.Sprintf("%s: application must not import %q (forbidden: %s)", f, imp, bad))
+				}
+			}
+		}
+	}
+
+	// External SDKs only in adapters or composition root (cmd, bootstrap).
+	internalFiles, err := listProductionGoFiles("internal", "cmd")
+	if err != nil {
+		return err
+	}
+	for _, f := range internalFiles {
+		if compositionRootOrAdapter(f) {
+			continue
+		}
+		imps, err := importsOf(fset, f)
+		if err != nil {
+			return err
+		}
+		for _, imp := range imps {
+			for _, sdk := range externalSDKs {
+				if strings.Contains(imp, sdk) {
+					violations = append(violations, fmt.Sprintf("%s: external SDK %q only allowed in adapters or composition root (internal/bootstrap, cmd)", f, imp))
+				}
+			}
+		}
+	}
+
+	// Public surface: pkg/ must not depend on internal/, except the declared
+	// bridge. This is what keeps the exported API free of unexported types.
+	pkgFiles, err := listProductionGoFiles("pkg")
+	if err != nil {
+		return err
+	}
+	if mod != "" {
+		internalPrefix := mod + "/internal"
+		for _, f := range pkgFiles {
+			if strings.HasPrefix(f, publicBridge) {
+				continue
+			}
+			imps, err := importsOf(fset, f)
+			if err != nil {
+				return err
+			}
+			for _, imp := range imps {
+				if imp == internalPrefix || strings.HasPrefix(imp, internalPrefix+"/") {
+					violations = append(violations, fmt.Sprintf("%s: pkg/ must not import %q; %s is the only allowed public bridge", f, imp, publicBridge))
+				}
+			}
+		}
+	}
+
+	if len(violations) > 0 {
+		return fmt.Errorf("architecture boundary violations:\n  - %s", strings.Join(violations, "\n  - "))
+	}
+	fmt.Printf("architecture: scanned %d domain + %d application + %d public files; boundaries intact\n",
+		len(domainFiles), len(appFiles), len(pkgFiles))
+	return nil
+}
+</file>
+
+<file path="tools/guardrails/funcsize.go">
+package main
+
+import (
+	"fmt"
+	"go/ast"
+	"go/token"
+	"sort"
+	"strings"
+)
+
+const (
+	funcWarnLines  = 40
+	funcErrorLines = 80
+)
+
+func runFuncSize() error {
+	allow, err := loadAllowlist(".guardrails/function-size-exceptions.yaml", true)
+	if err != nil {
+		return err
+	}
+	allowed := allowlistSet(allow)
+
+	files, err := listProductionGoFiles("pkg", "internal", "cmd")
+	if err != nil {
+		return err
+	}
+	sort.Strings(files)
+
+	fset := token.NewFileSet()
+	var errors, warnings []string
+	for _, f := range files {
+		file, err := parseGoFile(fset, f)
+		if err != nil {
+			return err
+		}
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil {
+				continue
+			}
+			start := fset.Position(fn.Pos()).Line
+			end := fset.Position(fn.End()).Line
+			length := end - start + 1
+			sym := funcSymbol(fn)
+			switch {
+			case length > funcErrorLines:
+				if allowed[allowKey(f, sym)] {
+					continue
+				}
+				errors = append(errors, fmt.Sprintf("%s:%s has %d lines (limit %d)", f, sym, length, funcErrorLines))
+			case length > funcWarnLines:
+				warnings = append(warnings, fmt.Sprintf("%s:%s has %d lines (warn %d)", f, sym, length, funcWarnLines))
+			}
+		}
+	}
+	if len(warnings) > 0 {
+		fmt.Printf("function-size: %d functions in warn band (>%d)\n", len(warnings), funcWarnLines)
+	}
+	if len(errors) > 0 {
+		return fmt.Errorf("function-size violations (limit %d lines):\n  - %s\n  add a justified, expiring entry to .guardrails/function-size-exceptions.yaml or refactor", funcErrorLines, strings.Join(errors, "\n  - "))
+	}
+	fmt.Printf("function-size: scanned %d files; no errors\n", len(files))
+	return nil
+}
+</file>
+
+<file path="tools/guardrails/ignored_errors.go">
+package main
+
+import (
+	"fmt"
+	"go/ast"
+	"go/token"
+	"sort"
+	"strings"
+)
+
+// Calls whose error genuinely matters: audit trails, persistence, queue writes
+// and IO. Discarding those errors turns a failure into silence.
+var ignoredErrorKeywords = []string{
+	"audit", "capture", "record", "publish", "persist", "save", "send", "enqueue", "write",
+}
+
+func ignoredErrorKeyword(name string) string {
+	lower := strings.ToLower(name)
+	for _, kw := range ignoredErrorKeywords {
+		if strings.Contains(lower, kw) {
+			return kw
+		}
+	}
+	return ""
+}
+
+func calleeName(call *ast.CallExpr) string {
+	switch fn := call.Fun.(type) {
+	case *ast.Ident:
+		return fn.Name
+	case *ast.SelectorExpr:
+		return fn.Sel.Name
+	}
+	return ""
+}
+
+func runIgnoredErrors() error {
+	allow, err := loadAllowlist(".guardrails/ignored-error-exceptions.yaml", true)
+	if err != nil {
+		return err
+	}
+	allowed := allowlistSet(allow)
+
+	files, err := listProductionGoFiles("pkg", "internal", "cmd")
+	if err != nil {
+		return err
+	}
+	sort.Strings(files)
+
+	fset := token.NewFileSet()
+	var violations []string
+	for _, f := range files {
+		file, err := parseGoFile(fset, f)
+		if err != nil {
+			return err
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			assign, ok := n.(*ast.AssignStmt)
+			if !ok || len(assign.Lhs) != 1 || len(assign.Rhs) != 1 {
+				return true
+			}
+			lhs, ok := assign.Lhs[0].(*ast.Ident)
+			if !ok || lhs.Name != "_" {
+				return true
+			}
+			call, ok := assign.Rhs[0].(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			name := calleeName(call)
+			kw := ignoredErrorKeyword(name)
+			if kw == "" {
+				return true
+			}
+			if allowed[allowKey(f, name)] {
+				return true
+			}
+			line := fset.Position(assign.Pos()).Line
+			violations = append(violations, fmt.Sprintf("%s:%d: ignored error from %q (matches %q); audit/persistence/queue/IO errors must be handled", f, line, name, kw))
+			return true
+		})
+	}
+	if len(violations) > 0 {
+		return fmt.Errorf("ignored-error violations:\n  - %s\n  handle the error, or add a justified, expiring entry to .guardrails/ignored-error-exceptions.yaml with an inline `// best-effort:` comment", strings.Join(violations, "\n  - "))
+	}
+	fmt.Printf("ignored-errors: scanned %d files; none unhandled outside allowlist\n", len(files))
+	return nil
+}
+</file>
+
+<file path="tools/guardrails/main.go">
+// Command guardrails implements deterministic, production-only structural
+// guardrails (architecture boundaries, function/port size, ignored errors,
+// public route security). Allowlists live in .guardrails/*.yaml and are
+// validated (required fields, ISO expiry, ref) by a stdlib-only parser, so the
+// tool builds without adding any dependency to the module.
+//
+// Every check skips roots that do not exist, so a freshly rendered project
+// passes and the gates activate as the codebase grows.
+package main
+
+import (
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+func main() {
+	if len(os.Args) < 2 {
+		fmt.Fprintln(os.Stderr, "usage: guardrails <architecture|funcsize|portsize|ignored-errors|public-route|allowlist-paths> [args]")
+		os.Exit(2)
+	}
+	cmd := os.Args[1]
+	args := os.Args[2:]
+	var err error
+	switch cmd {
+	case "architecture":
+		err = runArchitecture()
+	case "funcsize":
+		err = runFuncSize()
+	case "portsize":
+		err = runPortSize()
+	case "ignored-errors":
+		err = runIgnoredErrors()
+	case "public-route":
+		err = runPublicRoute()
+	case "allowlist-paths":
+		err = runAllowlistPaths(args)
+	default:
+		fmt.Fprintf(os.Stderr, "guardrails: unknown subcommand %q\n", cmd)
+		os.Exit(2)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "guardrails %s: FAIL\n%v\n", cmd, err)
+		os.Exit(1)
+	}
+	// allowlist-paths emits data on stdout; keep it clean for shell consumers.
+	if cmd != "allowlist-paths" {
+		fmt.Printf("guardrails %s: ok\n", cmd)
+	}
+}
+
+// excludedDir reports whether a directory must be skipped for production scans.
+func excludedDir(name string) bool {
+	switch name {
+	case "vendor", "third_party", "tools", "testdata", ".git", "node_modules":
+		return true
+	}
+	return false
+}
+
+// listProductionGoFiles walks the given roots and returns production *.go files,
+// excluding tests, vendored/generated trees and generated files.
+func listProductionGoFiles(roots ...string) ([]string, error) {
+	var files []string
+	for _, root := range roots {
+		if _, err := os.Stat(root); err != nil {
+			continue
+		}
+		walkErr := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() {
+				if excludedDir(d.Name()) {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if !strings.HasSuffix(path, ".go") {
+				return nil
+			}
+			if strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			gen, gerr := isGenerated(path)
+			if gerr != nil {
+				return gerr
+			}
+			if gen {
+				return nil
+			}
+			files = append(files, path)
+			return nil
+		})
+		if walkErr != nil {
+			return nil, walkErr
+		}
+	}
+	return files, nil
+}
+
+// isGenerated reports whether a Go file carries the standard generated marker.
+func isGenerated(path string) (bool, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
+	const marker = "// Code generated"
+	head := data
+	if len(head) > 2048 {
+		head = head[:2048]
+	}
+	for _, line := range strings.Split(string(head), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, marker) && strings.Contains(line, "DO NOT EDIT") {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func parseGoFile(fset *token.FileSet, path string) (*ast.File, error) {
+	return parser.ParseFile(fset, path, nil, parser.ParseComments)
+}
+
+// receiverName returns the bare receiver type name for a method declaration.
+func receiverName(fn *ast.FuncDecl) string {
+	if fn.Recv == nil || len(fn.Recv.List) == 0 {
+		return ""
+	}
+	switch t := fn.Recv.List[0].Type.(type) {
+	case *ast.StarExpr:
+		if id, ok := t.X.(*ast.Ident); ok {
+			return id.Name
+		}
+	case *ast.Ident:
+		return t.Name
+	}
+	return ""
+}
+
+// funcSymbol returns "Recv.Name" for methods and "Name" for free functions.
+func funcSymbol(fn *ast.FuncDecl) string {
+	if recv := receiverName(fn); recv != "" {
+		return recv + "." + fn.Name.Name
+	}
+	return fn.Name.Name
+}
+</file>
+
+<file path="tools/guardrails/portsize.go">
+package main
+
+import (
+	"fmt"
+	"go/ast"
+	"go/token"
+	"sort"
+	"strings"
+)
+
+const (
+	portWarnMethods  = 3
+	portErrorMethods = 5
+)
+
+// interfaceMethodCount counts explicit methods (named fields with a function
+// type); embedded interfaces are not counted as methods.
+func interfaceMethodCount(it *ast.InterfaceType) int {
+	if it.Methods == nil {
+		return 0
+	}
+	count := 0
+	for _, field := range it.Methods.List {
+		if len(field.Names) == 0 {
+			continue // embedded interface
+		}
+		if _, ok := field.Type.(*ast.FuncType); ok {
+			count += len(field.Names)
+		}
+	}
+	return count
+}
+
+func runPortSize() error {
+	allow, err := loadAllowlist(".guardrails/port-size-exceptions.yaml", true)
+	if err != nil {
+		return err
+	}
+	allowed := allowlistSet(allow)
+
+	files, err := listProductionGoFiles("pkg", "internal/domain", "internal/application")
+	if err != nil {
+		return err
+	}
+	sort.Strings(files)
+
+	fset := token.NewFileSet()
+	var errors, warnings []string
+	for _, f := range files {
+		file, err := parseGoFile(fset, f)
+		if err != nil {
+			return err
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			ts, ok := n.(*ast.TypeSpec)
+			if !ok {
+				return true
+			}
+			it, ok := ts.Type.(*ast.InterfaceType)
+			if !ok {
+				return true
+			}
+			name := ts.Name.Name
+			count := interfaceMethodCount(it)
+			switch {
+			case count > portErrorMethods:
+				if allowed[allowKey(f, name)] {
+					return true
+				}
+				errors = append(errors, fmt.Sprintf("%s:%s has %d methods (limit %d)", f, name, count, portErrorMethods))
+			case count > portWarnMethods:
+				warnings = append(warnings, fmt.Sprintf("%s:%s has %d methods (warn %d)", f, name, count, portWarnMethods))
+			}
+			return true
+		})
+	}
+	if len(warnings) > 0 {
+		fmt.Printf("port-size: %d interfaces in warn band (>%d methods)\n", len(warnings), portWarnMethods)
+	}
+	if len(errors) > 0 {
+		return fmt.Errorf("port-size violations (limit %d methods):\n  - %s\n  prefer 1-3 methods; add a justified, expiring entry to .guardrails/port-size-exceptions.yaml or split the port", portErrorMethods, strings.Join(errors, "\n  - "))
+	}
+	fmt.Printf("port-size: scanned %d files; no errors\n", len(files))
+	return nil
+}
+</file>
+
+<file path="tools/guardrails/public_route.go">
+package main
+
+import (
+	"fmt"
+	"go/ast"
+	"go/token"
+	"os"
+	"sort"
+	"strings"
+)
+
+// Public route security gate (conservative, AST-based).
+//
+// Scope and limitations: this models a Gin-style router in
+// internal/adapters/http/router.go by tracking New() roots, Group(...) chains
+// and Use(...) middleware. It flags any public route not behind approved
+// middleware (auth/tenant/rate-limit) unless the route is allowlisted. It does
+// NOT fully model dynamic routing (routes built from variables or loops), and it
+// does not trace where the tenant identity comes from: that part stays normative
+// in .cursor/rules/http-security-tenant.mdc. OpenAPI security is checked
+// textually.
+//
+// Both inputs are optional: a project without an HTTP adapter or without a
+// published contract passes without configuration.
+
+var httpMethods = map[string]bool{
+	"GET": true, "POST": true, "PUT": true, "PATCH": true, "DELETE": true, "HEAD": true, "OPTIONS": true,
+}
+
+// publicRoutePrefix is the route namespace treated as publicly reachable.
+var publicRoutePrefix = envOrDefault("PUBLIC_ROUTE_PREFIX", "/v1")
+
+func envOrDefault(key, fallback string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return fallback
+}
+
+type routerGroup struct {
+	parent string
+	prefix string
+	mws    []string
+}
+
+func approvedMiddleware(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.Contains(lower, "auth") ||
+		strings.Contains(lower, "tenant") ||
+		strings.Contains(lower, "ratelimit") ||
+		strings.Contains(lower, "rate_limit")
+}
+
+func exprCalleeName(e ast.Expr) string {
+	if call, ok := e.(*ast.CallExpr); ok {
+		return calleeName(call)
+	}
+	return ""
+}
+
+func stringLit(e ast.Expr) (string, bool) {
+	lit, ok := e.(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING {
+		return "", false
+	}
+	return strings.Trim(lit.Value, "\"`"), true
+}
+
+func selRecvAndName(e ast.Expr) (string, string, bool) {
+	sel, ok := e.(*ast.SelectorExpr)
+	if !ok {
+		return "", "", false
+	}
+	recv, ok := sel.X.(*ast.Ident)
+	if !ok {
+		return "", "", false
+	}
+	return recv.Name, sel.Sel.Name, true
+}
+
+type routeReg struct {
+	recv   string
+	method string
+	path   string
+}
+
+func runPublicRoute() error {
+	allow, err := loadAllowlist(".guardrails/public-route-exceptions.yaml", false)
+	if err != nil {
+		return err
+	}
+	allowed := allowlistSet(allow)
+
+	var violations []string
+
+	routerFile := "internal/adapters/http/router.go"
+	if _, statErr := os.Stat(routerFile); statErr == nil {
+		groups := map[string]*routerGroup{}
+		var routes []routeReg
+
+		fset := token.NewFileSet()
+		file, perr := parseGoFile(fset, routerFile)
+		if perr != nil {
+			return perr
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			// group definitions: x := gin.New()  /  x := y.Group("p", mw...)
+			if as, ok := n.(*ast.AssignStmt); ok && len(as.Lhs) == 1 && len(as.Rhs) == 1 {
+				lhs, lok := as.Lhs[0].(*ast.Ident)
+				call, cok := as.Rhs[0].(*ast.CallExpr)
+				if lok && cok {
+					if name := exprCalleeName(as.Rhs[0]); name == "New" || name == "Default" {
+						groups[lhs.Name] = &routerGroup{parent: "", prefix: ""}
+					} else if recv, sel, ok := selRecvAndName(call.Fun); ok && sel == "Group" {
+						g := &routerGroup{parent: recv}
+						if len(call.Args) > 0 {
+							if p, ok := stringLit(call.Args[0]); ok {
+								g.prefix = p
+							}
+						}
+						for _, a := range call.Args[1:] {
+							g.mws = append(g.mws, exprCalleeName(a))
+						}
+						groups[lhs.Name] = g
+					}
+				}
+			}
+			// calls: x.Use(...) / x.METHOD("path", ...)
+			if call, ok := n.(*ast.CallExpr); ok {
+				if recv, sel, ok := selRecvAndName(call.Fun); ok {
+					if sel == "Use" {
+						if g := groups[recv]; g != nil {
+							for _, a := range call.Args {
+								g.mws = append(g.mws, exprCalleeName(a))
+							}
+						}
+					} else if httpMethods[strings.ToUpper(sel)] {
+						if len(call.Args) > 0 {
+							if p, ok := stringLit(call.Args[0]); ok {
+								routes = append(routes, routeReg{recv: recv, method: strings.ToUpper(sel), path: p})
+							}
+						}
+					}
+				}
+			}
+			return true
+		})
+
+		resolvePrefix := func(recv string) string {
+			parts := []string{}
+			seen := map[string]bool{}
+			for recv != "" && groups[recv] != nil && !seen[recv] {
+				seen[recv] = true
+				g := groups[recv]
+				if g.prefix != "" {
+					parts = append([]string{g.prefix}, parts...)
+				}
+				recv = g.parent
+			}
+			return strings.Join(parts, "")
+		}
+		protectedChain := func(recv string) bool {
+			seen := map[string]bool{}
+			for recv != "" && groups[recv] != nil && !seen[recv] {
+				seen[recv] = true
+				g := groups[recv]
+				for _, mw := range g.mws {
+					if approvedMiddleware(mw) {
+						return true
+					}
+				}
+				recv = g.parent
+			}
+			return false
+		}
+
+		for _, r := range routes {
+			full := resolvePrefix(r.recv) + r.path
+			if !strings.HasPrefix(full, publicRoutePrefix) {
+				continue
+			}
+			if protectedChain(r.recv) {
+				continue
+			}
+			key := r.method + " " + full
+			if allowed[allowKey(key, "")] {
+				continue
+			}
+			violations = append(violations, fmt.Sprintf("public route without auth/tenant/rate-limit: %q (allowlist it in .guardrails/public-route-exceptions.yaml only with an expiring debt ref, or put it behind approved middleware)", key))
+		}
+	}
+
+	// Published contract: must declare securitySchemes (else allowlisted debt).
+	openapi := "api/openapi.yaml"
+	if data, rerr := os.ReadFile(openapi); rerr == nil {
+		if !strings.Contains(string(data), "securitySchemes:") {
+			if !allowed[allowKey(openapi, "")] {
+				violations = append(violations, fmt.Sprintf("%s declares no securitySchemes for the public API (define schemes + per-operation security, or allowlist as expiring debt)", openapi))
+			}
+		}
+	}
+
+	if len(violations) > 0 {
+		sort.Strings(violations)
+		return fmt.Errorf("public-route security violations:\n  - %s", strings.Join(violations, "\n  - "))
+	}
+	fmt.Printf("public-route: %s routes covered by auth/tenant/rate-limit or audited allowlist; contract security present or allowlisted\n", publicRoutePrefix)
+	return nil
 }
 </file>
 

@@ -1,0 +1,7 @@
+# Allowlist de excecoes do gate correspondente.
+#
+# Toda entrada exige: path, rule, justification, owner, expires_at (YYYY-MM-DD) e
+# ref. Gates com escopo por simbolo exigem tambem symbol.
+# Entrada expirada REPROVA o gate: divida tecnica aqui tem prazo, nao permanencia.
+version: 1
+exceptions: []

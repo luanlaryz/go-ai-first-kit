@@ -1,0 +1,21 @@
+---
+description: Observabilidade - log estruturado, tracing na borda, metricas e redacao de dado sensivel
+globs: "internal/**/*.go"
+alwaysApply: false
+---
+
+# Observability
+
+- Log de producao e estruturado, com correlacao (request/trace) propagada por `context.Context`.
+  `log.Printf`, `fmt.Println` e afins **nao** entram em `internal/**` de producao: saida nao
+  estruturada e invisivel para qualquer stack de observabilidade.
+- Se a dependencia de telemetria esta declarada em `go.mod`, ela precisa estar realmente em uso.
+  Dependencia declarada e nao ligada e pior que ausencia: sugere cobertura que nao existe.
+- Tracing HTTP e instrumentado **uma vez na borda**, nao por handler. Camada dupla de span produz
+  trace duplicado e latencia inflada.
+- Metricas ficam num ponto unico de registro. Identificador de alta cardinalidade (id de tenant, id de
+  requisicao, e-mail) nunca vira label de metrica; use bucket ou omita.
+- Dado sensivel e credencial passam por redacao antes de qualquer log, span ou metrica.
+- Erro observavel que o contrato menciona precisa aparecer em log com nivel adequado, nao ser engolido.
+- Gate executavel: `make check-observability` (agregado em `make guardrails`).
+- Aplique `skills/12-observability-zap-otel-prom/SKILL.md`.

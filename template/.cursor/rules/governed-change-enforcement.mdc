@@ -1,0 +1,28 @@
+---
+description: Mudanca em escopo governado exige BLG-NNNN + par dual-spec + plano revisado, declarados no PR
+alwaysApply: true
+---
+
+# Governed change enforcement
+
+Escopo governado: `pkg/**`, `internal/**`, `api/**`, `migrations/**`.
+
+- Antes de editar escopo governado, aplique `skills/29-governed-change-workflow/SKILL.md` e garanta o
+  trio: item `BLG-NNNN` em `docs/backlog/Backlog.md`, par dual-spec (construcao `NNN` + diagnostico
+  `NNN+1` terminado em `-diagnosis.md`) e plano com review aprovado.
+- O item de backlog precisa estar com `Status` em `ready_for_implementation`, `in_progress` ou `done`
+  no momento do PR. Item `candidate` nao autoriza implementacao.
+- Declare no corpo do PR as secoes `## Backlog`, `## Specs lidas`, `## Autopilot` e `## Regressao`.
+  O gate `scripts/check-governed-change.sh` cruza cada uma com o disco: backlog, specs, plano e review.
+- O plano citado em `## Autopilot` precisa passar em `scripts/verify-plan-review.sh`. Plano sem review
+  valido reprova o PR.
+- `automation/INTERACTIVE_STATE.json` e estado operacional efemero: nao versione a alteracao de state
+  no PR. A prova de trilha exigida pelo gate e o plano revisado.
+- Um arquivo em `.cursor/plans/**` nao substitui spec. Plano descreve execucao; spec descreve contrato.
+- Excecao ao escopo governado existe apenas em `.guardrails/governed-change-exceptions.yaml` com
+  `expires_at`. Entrada expirada que casa com arquivo alterado reprova o gate; nao renove sem decisao
+  registrada.
+- Nao contorne o gate editando o corpo do PR depois do check: o gate resolve o corpo vivo do PR por
+  numero, nao um payload em cache.
+- Identificadores sequenciais (`BLG-NNNN`, `specs/NNN`, `migrations/NNNN`) sao reservados no ultimo
+  momento antes do commit; aplique `skills/31-parallel-session-coordination/SKILL.md`.

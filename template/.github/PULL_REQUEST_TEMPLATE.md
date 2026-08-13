@@ -2,14 +2,34 @@
 
 Descreva o resultado observavel desta mudanca.
 
+## Backlog
+
+Item governado desta mudanca, ou `none` quando o PR nao toca `pkg/**`, `internal/**`, `api/**` nem `migrations/**`.
+
+- `BLG-NNNN` (`docs/backlog/Backlog.md`), com `Status` em `ready_for_implementation`, `in_progress` ou `done`
+
 ## Specs lidas
 
 - [ ] `AGENTS.md`
 - [ ] spec(s) governante(s) citadas abaixo
 
-Liste as specs e secoes aplicaveis:
+Liste as specs e secoes aplicaveis. Escopo governado exige o par dual-spec (construcao `NNN` + diagnostico `NNN+1`):
 
 - `specs/...`
+
+## Autopilot
+
+Plano revisado desta mudanca, ou `none` fora do escopo governado.
+
+- Plano: `.cursor/plans/<id>.plan.md`
+- Veredito: `automation/PLAN_REVIEWS/<id>.md`
+- `make verify-plan-reviews`: `PASS`
+
+## Regressao
+
+Cobertura regressiva desta mudanca, ou `none` fora do escopo governado.
+
+- `BLG-NNNN` + cenario alvo em `test/<pacote>::<cenario>`
 
 ## Skills aplicadas
 

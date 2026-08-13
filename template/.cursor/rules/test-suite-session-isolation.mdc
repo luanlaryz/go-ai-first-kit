@@ -1,0 +1,18 @@
+---
+description: Suite de conformidade e o contrato executavel - nao viaja no mesmo PR da feature que valida
+alwaysApply: true
+---
+
+# Conformance suite isolation
+
+- `test/conformance/**` e o contrato executavel. Em sessao de feature, trate essa arvore como
+  **read-only**.
+- Nunca misture alteracao da suite de conformidade com codigo governado no mesmo commit, branch ou PR.
+  Motivo: um PR que muda o teste de contrato junto com a feature que ele valida sempre pode ficar verde
+  enfraquecendo o teste.
+- Alteracao da suite de conformidade acontece em branch e PR dedicados, com justificativa propria e
+  revisao explicita do que o contrato passou a permitir.
+- Isso **nao** dispensa teste junto da mudanca: teste unitario ao lado do codigo, fixture e baseline de
+  seguranca continuam obrigatorios no mesmo patch. O escopo isolado e apenas a suite de conformidade.
+- Gate executavel: `make check-test-isolation` (agregado em `make guardrails`). O prefixo protegido e
+  configuravel por `TEST_ISOLATION_PROTECTED_PREFIX`.

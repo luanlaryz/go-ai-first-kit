@@ -1,0 +1,19 @@
+---
+description: Superficie de navegacao e catalogo de capacidades acompanham a mudanca, no mesmo patch
+globs: "{pkg,internal,api,cmd}/**/*.go"
+alwaysApply: false
+---
+
+# Docs sync maintenance
+
+- Quando a mudanca altera comportamento observavel, API publica, contrato ou fluxo operacional,
+  atualize no **mesmo patch** as superficies que descrevem isso: `docs/ai/capabilities.md`,
+  a jornada afetada em `docs/journeys/` e o `README.md` quando o fluxo de entrada mudar.
+- Nao adie atualizacao de doc para PR futuro. Doc atrasada e pior que doc ausente: ela afirma
+  capacidade que o codigo nao tem mais.
+- Nao declare capacidade sem artefato correspondente. Se o comando, script ou gate nao existe, ele entra
+  como gap declarado, nunca como entrega concluida.
+- `specs/010-feature-matrix.md` acompanha mudanca de cobertura, status ou paridade de uma feature.
+- ADR em `docs/decisions/` registra decisao de arquitetura ou governanca nao obvia, incluindo as
+  alternativas rejeitadas e o motivo.
+- Aplique `skills/21-documentation-open-source/SKILL.md`.

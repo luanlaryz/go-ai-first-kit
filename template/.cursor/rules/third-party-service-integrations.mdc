@@ -1,0 +1,21 @@
+---
+description: Servico externo exige port/adapter e credencial cifrada por tenant
+globs: "internal/**/*.go"
+alwaysApply: false
+---
+
+# Third-party integrations
+
+- Para qualquer integracao com sistema externo, ou tool de agente que chame para fora do processo,
+  aplique `skills/30-third-party-service-integrations/SKILL.md`.
+- Defina port pequeno na camada de aplicacao; SDK, cliente HTTP, DTO externo e auth ficam no adapter.
+- Credencial e escopada por {{DOMAIN_ACTOR}} e chave de servico, cifrada em repouso, com cache de TTL
+  explicito e limitado. Cache sem invalidacao transforma credencial revogada em credencial ativa.
+- Invalide o cache apos atualizacao da credencial, antes de considerar a mudanca concluida.
+- Nunca faca fallback silencioso para credencial global compartilhada: isso quebra isolamento por
+  tenant sem deixar rastro.
+- Aplique deadline de contexto, timeout, retry limitado com backoff e circuit breaker quando aplicavel.
+  Erro de provider e mapeado para erro de aplicacao sanitizado, nunca repassado cru.
+- Observabilidade preserva correlacao, chave de servico, resultado e latencia, sem token nem dado
+  pessoal.
+- Se a integracao expoe endpoint de configuracao, atualize o contrato publicado e o cliente tipado.

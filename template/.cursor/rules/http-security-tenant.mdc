@@ -1,0 +1,24 @@
+---
+description: Rota publica exige auth, resolucao de tenant e rate limiting; identidade vem da credencial
+globs: "internal/adapters/http/**/*.go"
+alwaysApply: false
+---
+
+# HTTP security and tenant isolation
+
+- Toda rota publica passa por autenticacao, resolucao de tenant e rate limiting antes de alcancar o
+  caso de uso.
+- A identidade do {{DOMAIN_ACTOR}} deriva **da credencial**, nunca do payload, query string ou header
+  controlado pelo cliente. Campo de identidade vindo do corpo da requisicao e entrada do usuario, nao
+  autoridade de tenant - tratar como autoridade e IDOR por construcao.
+- Rota administrativa exige autenticacao **e** autorizacao explicita; estar autenticado nao basta.
+- O contrato publicado declara `securitySchemes` e seguranca por operacao. Contrato sem seguranca
+  declarada gera cliente que nao envia credencial.
+- Toda superficie multi-tenant precisa de teste negativo cross-tenant: provar que o tenant A nao
+  alcanca o dado do tenant B. Teste positivo sozinho nao cobre isolamento.
+- Headers de seguranca e limites de tamanho de corpo ficam na borda, nao em cada handler.
+- Gate executavel: `make check-public-route-security` (agregado em `make guardrails`). O gate cobre
+  cobertura de middleware e seguranca do contrato; a origem da identidade de tenant permanece regra
+  normativa e assunto de review.
+- Aplique `skills/02-tenant-auth-quotas/SKILL.md`, `skills/10-http-gin-openapi/SKILL.md` e
+  `skills/18-security-owasp-api/SKILL.md`.

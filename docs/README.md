@@ -23,6 +23,8 @@
 - [govolt-sync-diagnosis.md](govolt-sync-diagnosis.md): diagnóstico do diff `govolt → kit`, matriz de paridade e decisões por item.
 - [govolt-sync-baseline.json](govolt-sync-baseline.json): pin do SHA upstream aplicado e exclusões da rodada.
 - [extracted-from-govolt.md](extracted-from-govolt.md): proveniência e divergências intencionais.
+- [sac-agents-sync-diagnosis.md](sac-agents-sync-diagnosis.md): diagnóstico do diff `sac-agents → kit` (sincronização downstream), decisões por artefato e limitações aceitas.
+- [sac-agents-sync-baseline.json](sac-agents-sync-baseline.json): pin do SHA downstream aplicado e exclusões da rodada.
 - [../CHANGELOG.md](../CHANGELOG.md): histórico de mudanças do kit.
 
 Regra editorial: toda afirmação nova nestes documentos deve apontar para artefato renderizável ou comando executável. Capacidades futuras entram como gap ou trabalho a especificar, nunca como entrega concluída.

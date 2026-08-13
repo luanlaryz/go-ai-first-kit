@@ -1,0 +1,25 @@
+---
+description: Gate de CI roda de verdade - nada de skip silencioso em check obrigatorio
+alwaysApply: true
+---
+
+# CI: no silent skip
+
+- Gate obrigatorio em `make pre-pr`, `make guardrails` ou no CI nao pode passar por ausencia de
+  ferramenta. Toolchain faltando e **FAIL**, nao skip: um gate que se desliga sozinho nao e gate.
+- Skip legitimo e explicito e justificado (por exemplo, gate PR-scoped sem base ref local). Ele imprime
+  a razao, e nunca imprime `ok`.
+- `make guardrails` agrega os checks estruturais e nao mascara falha de nenhum deles; falha em qualquer
+  gate reprova o alvo agregado.
+- O job de detecao de race e obrigatorio e roda em paralelo com o de validacao; nao remova para acelerar
+  o pipeline.
+- `make pre-pr` e o CI ficam em sincronia. Gate que roda somente no CI transforma o PR no unico ponto de
+  descoberta de falha; gate que roda somente local nao protege a branch principal.
+- Excecao declarada: `check-governed-change` e PR-scoped por natureza, porque le o corpo do PR. Em
+  `push` ele imprime skip explicito. A protecao da branch principal contra mudanca governada sem trio
+  depende de branch protection exigindo PR — configure isso no repositorio; o gate sozinho nao cobre
+  push direto.
+- Nao transforme `deny`/`ask` de hook em `allow`, nem remova `failClosed`, para destravar entrega.
+  `make check-agent-hooks` reprova exatamente isso.
+- Nao comente, marque como skip nem envolva em condicional permissiva um teste que esteja falhando.
+  Corrija a causa ou registre stop condition.

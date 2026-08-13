@@ -67,8 +67,32 @@ O detalhamento operacional de cada uma vive no projeto gerado, em `docs/ai/capab
 ### Governança para agentes
 
 - Tipo: `guia` com enforcement parcial `automático`. Estado: `baseline entregue`.
-- Artefatos: `AGENTS.md` (constituição), `.cursor/rules/` (6 regras modulares), `.cursor/hooks/` (gofmt pós-edição), `skills/00-skill-index/SKILL.md` e 26 skills numeradas.
+- Artefatos: `AGENTS.md` (constituição), `.cursor/rules/` (24 regras modulares), `.cursor/hooks/` (gofmt pós-edição + 4 guards de runtime), `skills/00-skill-index/SKILL.md` e 31 skills numeradas.
 - Limites: as skills de infraestrutura (02–04, 06–12, 14, 18–19) são guidance herdada para quando o produto exigir aquela stack; nenhuma dependência de Redis, SQS, Gin, gRPC ou Postgres é instalada pelo starter.
+
+### Segurança de acesso do agente
+
+- Tipo: `automático`. Estado: `baseline entregue`.
+- Artefatos: `.cursor/hooks/agent-cloud-access-guard.*` (classifica `aws`/`kubectl` por alvo, fail-closed), `.cursor/hooks/env-read-guard.*` (aprovação humana para ler `.env`), `.cursor/hooks/cloud-access-config.json`, `scripts/check-agent-hooks.sh` (gate de wiring), `scripts/env-keys.sh`, `docs/runbooks/agent-cloud-access.md`, rule `agent-cloud-access.mdc`.
+- Limites: reduz acidente, não detém ator malicioso — é contornável por `eval`/wrapper de PATH e não substitui IAM/RBAC. Marcadores de ambiente vazios são restritivos por design: sem configuração, mutação é negada e leitura exige aprovação.
+
+### Mudança governada e review de plano
+
+- Tipo: `automático` + `processual`. Estado: `baseline entregue`.
+- Artefatos: `scripts/check-governed-change.sh` (exige item de backlog, par dual-spec, plano revisado e cobertura regressiva declarada no corpo do PR), `scripts/verify-plan-review.sh` (valida veredito por hash e TTL), `scripts/review-plan.py`, `automation/PLAN_REVIEWS/`, `.cursor/hooks/governed-change-guard.*`, skills 27–29.
+- Limites: o gate valida artefatos, não chama modelo — CI não precisa de API key. `DUAL_AUTOMATED` exige integração de provider que o starter não configura; o modo default seguro é `DUAL_TURN_BASED`.
+
+### Coordenação entre sessões paralelas
+
+- Tipo: `automático` + `processual`. Estado: `baseline entregue`.
+- Artefatos: `scripts/check-parallel-collision.sh` (+ selftest), `.cursor/hooks/parallel-collision-guard.*`, rule `parallel-session-safety.mdc`, skill 31 (Protocolos A–F).
+- Limites: a varredura de PRs abertos é heurística — um PR pode reservar um ID sem citá-lo. O backlog é arquivo único, mais sujeito a conflito de merge que um modelo de um arquivo por item; a mitigação é procedimental (Protocolo F).
+
+### Gates estruturais de design Go
+
+- Tipo: `automático`. Estado: `baseline entregue`.
+- Artefatos: `tools/guardrails/` (Go, apenas stdlib: fronteiras arquiteturais incluindo `pkg/` livre de `internal/`, tamanho de função, tamanho de port, erro descartado, segurança de rota pública), wrappers em `scripts/check-*.sh`, `.guardrails/*.yaml` com `expires_at` obrigatório, alvo agregado `make guardrails`.
+- Limites: cada raiz é opcional, então o gate acompanha o crescimento do projeto em vez de exigir a árvore completa. Sinais dos gates de design ainda não são lidos por `gakit diagnose`.
 
 ### SDD dual-spec
 
@@ -101,7 +125,7 @@ O detalhamento operacional de cada uma vive no projeto gerado, em `docs/ai/capab
 ### Qualidade, segurança e compliance
 
 - Tipo: `automático`. Estado: `baseline entregue`.
-- Artefatos: `Makefile` (fmt, lint, vet, test, race, coverage, test-security), `scripts/check-compliance.sh`, `check-secrets.sh`, `check-pr-body.sh`, `check-file-size.sh`, `.pre-commit-config.yaml`, `.github/workflows/ci.yml`, `test/security/`.
+- Artefatos: `Makefile` (fmt, lint, vet, test, race, coverage, test-security, `guardrails`, `pre-pr`), `scripts/check-compliance.sh`, `check-secrets.sh`, `check-pr-body.sh`, `check-file-size.sh`, `.pre-commit-config.yaml`, `.github/workflows/ci.yml` (jobs `validate` e `governance`), `test/security/`.
 - Limites: a baseline de segurança é mínima (presença de suite, secrets scan e govulncheck); não é uma suite ampla de regressão de safety.
 
 ### Descoberta e inventário

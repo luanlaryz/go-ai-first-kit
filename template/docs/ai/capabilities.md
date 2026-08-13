@@ -26,6 +26,38 @@ Estados:
 - Evidência: PRs declarando specs lidas e skills aplicadas, conforme o template de PR.
 - Limites: as skills de infraestrutura (02–04, 06–12, 14, 18–19) são guidance herdada para quando o produto exigir aquela stack; nenhuma dependência de Redis, SQS, Postgres, Gin ou gRPC está instalada.
 
+### Segurança de acesso do agente
+
+- Tipo: `automático`. Estado: `baseline entregue`.
+- Artefatos: [.cursor/hooks/agent-cloud-access-guard.py](../../.cursor/hooks/agent-cloud-access-guard.py), [.cursor/hooks/env-read-guard.py](../../.cursor/hooks/env-read-guard.py), [.cursor/hooks/cloud-access-config.json](../../.cursor/hooks/cloud-access-config.json), [scripts/check-agent-hooks.sh](../../scripts/check-agent-hooks.sh), [docs/runbooks/agent-cloud-access.md](../runbooks/agent-cloud-access.md).
+- Como ativar: preencha `dev_markers` e `prod_markers` em `cloud-access-config.json` com os identificadores reais do projeto. Sem isso o comportamento é restritivo: todo alvo fica indeterminado, mutação é negada e leitura exige aprovação.
+- Evidência: `make check-agent-hooks` e `make hook-selftests` verdes; decisões diferentes de `allow` ficam registradas em `.cursor/hooks/.agent-cloud-access-audit.log` sem o comando bruto.
+- Limites: reduz acidente, não detém ator malicioso. É contornável por `eval`, `bash -c` ou wrapper de PATH, não observa chamadas feitas por bibliotecas dentro do processo, e não substitui IAM/RBAC.
+
+### Mudança governada e review de plano
+
+- Tipo: `automático` + `processual`. Estado: `baseline entregue`.
+- Artefatos: [scripts/check-governed-change.sh](../../scripts/check-governed-change.sh), [scripts/verify-plan-review.sh](../../scripts/verify-plan-review.sh), [scripts/review-plan.py](../../scripts/review-plan.py), [automation/PLAN_REVIEWS/README.md](../../automation/PLAN_REVIEWS/README.md), skills [27](../../skills/27-dual-model-plan-review/SKILL.md), [28](../../skills/28-plan-review-autopilot/SKILL.md) e [29](../../skills/29-governed-change-workflow/SKILL.md).
+- Como ativar: mudança em `pkg/**`, `internal/**`, `api/**` ou `migrations/**` declara no corpo do PR item `BLG-NNNN`, par dual-spec, plano revisado e cenário de regressão. Plano só executa após `make verify-plan-reviews` passar.
+- Evidência: `make pre-pr` verde e veredito em `automation/PLAN_REVIEWS/` cujo `plan_sha256` casa com o corpo atual do plano.
+- Limites: o gate valida artefatos, não chama modelo — CI não precisa de API key. `DUAL_AUTOMATED` exige integração de provider que o starter não configura; o modo default seguro é `DUAL_TURN_BASED`.
+
+### Coordenação entre sessões paralelas
+
+- Tipo: `automático` + `processual`. Estado: `baseline entregue`.
+- Artefatos: [scripts/check-parallel-collision.sh](../../scripts/check-parallel-collision.sh), [.cursor/hooks/parallel-collision-guard.py](../../.cursor/hooks/parallel-collision-guard.py), skill [31](../../skills/31-parallel-session-coordination/SKILL.md).
+- Como ativar: reserve `BLG-NNNN`, `specs/NNN` e `migrations/NNNN` no último momento antes do commit; o gate cruza os IDs novos contra a base, PRs abertos e refs remotas.
+- Evidência: `make check-parallel-collision` verde antes de publicar, e branch nomeada com o ID efetivamente reservado.
+- Limites: a varredura de PRs abertos é heurística — um PR pode reservar um ID sem citá-lo em título, corpo, branch ou paths. `docs/backlog/Backlog.md` é arquivo único, mais sujeito a conflito de merge que um modelo de um arquivo por item; a mitigação é o Protocolo F da skill.
+
+### Gates estruturais de design Go
+
+- Tipo: `automático`. Estado: `baseline entregue`.
+- Artefatos: [tools/guardrails/](../../tools/guardrails/) (fronteiras arquiteturais, tamanho de função, tamanho de port, erro descartado, segurança de rota pública), wrappers `scripts/check-*.sh`, [.guardrails/README.md](../../.guardrails/README.md).
+- Como ativar: `make guardrails`. Exceção só existe em `.guardrails/*.yaml` com `expires_at`; entrada expirada reprova o gate.
+- Evidência: saída dos gates com contagem de arquivos escaneados, e allowlists sem entrada vencida.
+- Limites: cada raiz é opcional, então os gates acompanham o crescimento do projeto. A origem da identidade de tenant e o modelo de roteamento dinâmico ficam fora do alcance do gate e permanecem assunto de review.
+
 ### Spec Driven Development dual-spec
 
 - Tipo: `processual`. Estado: `baseline entregue` + `evidência a produzir`.
